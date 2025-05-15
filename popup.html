@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Hackathon 評審助手</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>AI Hackathon 評審助手</h1>
+    
+    <div class="status-panel">
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span class="status-text">未啟動</span>
+      </div>
+    </div>
+    
+    <div class="action-panel">
+      <button id="startCapture" class="btn primary">開始捕獲</button>
+      <button id="stopCapture" class="btn danger" disabled>停止捕獲</button>
+      <button id="openDashboard" class="btn secondary">開啟儀表板</button>
+    </div>
+    
+    <div class="settings-panel">
+      <h3>設置</h3>
+      <div class="form-group">
+        <label for="apiKey">OpenAI API Key:</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+      <div class="form-group">
+        <label for="captureMode">捕獲模式:</label>
+        <select id="captureMode">
+          <option value="tab">標籤頁捕獲</option>
+          <option value="desktop">桌面捕獲</option>
+        </select>
+      </div>
+      <button id="saveSettings" class="btn success">保存設置</button>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
