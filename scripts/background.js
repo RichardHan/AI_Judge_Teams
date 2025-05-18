@@ -1,10 +1,9 @@
-// 全局狀態
+// 背景腳本狀態管理
 let captureState = {
   isCapturing: false,
-  currentStream: null,
-  mediaCaptureManager: null,
-  activeTabId: null,
-  activeTeamId: null
+  activeTeamId: null,
+  captureMode: null,
+  startTime: null
 };
 
 // 初始化監聽器
@@ -12,103 +11,82 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('AI Hackathon Judge 擴展已安裝');
 });
 
-// 處理來自popup或content腳本的消息
+// 訊息處理
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('收到消息:', message);
+  console.log('Background received message:', message);
   
-  // 處理開始捕獲請求
-  if (message.action === 'startCapture') {
-    handleStartCapture(message.options)
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true; // 異步回應
+  switch (message.action) {
+    case 'getCaptureState':
+      sendResponse({
+        isCapturing: captureState.isCapturing,
+        activeTeamId: captureState.activeTeamId
+      });
+      break;
+      
+    case 'startCapture':
+      try {
+        // 這裡將來會實現實際捕獲功能
+        captureState.isCapturing = true;
+        captureState.activeTeamId = message.options.teamId;
+        captureState.captureMode = message.options.captureMode;
+        captureState.startTime = Date.now();
+        
+        sendResponse({ success: true });
+        
+        // 通知所有打開的擴展頁面狀態已更改
+        chrome.runtime.sendMessage({
+          action: 'captureStateChanged',
+          state: {
+            isCapturing: captureState.isCapturing
+          }
+        });
+      } catch (error) {
+        console.error('開始捕獲失敗:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      break;
+      
+    case 'stopCapture':
+      try {
+        // 這裡將來會停止捕獲功能
+        captureState.isCapturing = false;
+        
+        sendResponse({ success: true });
+        
+        // 通知所有打開的擴展頁面狀態已更改
+        chrome.runtime.sendMessage({
+          action: 'captureStateChanged',
+          state: {
+            isCapturing: captureState.isCapturing
+          }
+        });
+      } catch (error) {
+        console.error('停止捕獲失敗:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      break;
+      
+    case 'setActiveTeam':
+      try {
+        if (!captureState.isCapturing) {
+          captureState.activeTeamId = message.teamId;
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ 
+            success: false, 
+            error: 'Cannot change team while capturing is active' 
+          });
+        }
+      } catch (error) {
+        console.error('設置團隊失敗:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      break;
+      
+    default:
+      sendResponse({ success: false, error: 'Unknown action' });
   }
   
-  // 處理停止捕獲請求
-  if (message.action === 'stopCapture') {
-    handleStopCapture()
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-  
-  // 處理更新團隊ID
-  if (message.action === 'setActiveTeam') {
-    captureState.activeTeamId = message.teamId;
-    sendResponse({ success: true });
-  }
-  
-  // 處理獲取捕獲狀態
-  if (message.action === 'getCaptureState') {
-    sendResponse({
-      isCapturing: captureState.isCapturing,
-      activeTeamId: captureState.activeTeamId
-    });
-  }
+  // 為異步響應返回 true
+  return true;
 });
-
-// 處理開始捕獲
-async function handleStartCapture(options) {
-  if (captureState.isCapturing) {
-    return { success: false, error: '已經在捕獲中' };
-  }
-  
-  try {
-    // 動態加載媒體捕獲管理器
-    if (!captureState.mediaCaptureManager) {
-      const { MediaCaptureManager } = await import('./scripts/mediaCapture.js');
-      captureState.mediaCaptureManager = new MediaCaptureManager(options);
-    }
-    
-    // 初始化捕獲
-    const initialized = await captureState.mediaCaptureManager.initialize(options.captureMode);
-    if (!initialized) {
-      throw new Error('媒體捕獲初始化失敗');
-    }
-    
-    // 開始錄製
-    const started = captureState.mediaCaptureManager.startRecording();
-    if (!started) {
-      throw new Error('錄製啟動失敗');
-    }
-    
-    captureState.isCapturing = true;
-    
-    // 發送狀態更新
-    chrome.runtime.sendMessage({
-      action: 'captureStateChanged',
-      state: { isCapturing: true }
-    });
-    
-    return { success: true };
-  } catch (error) {
-    console.error('開始捕獲失敗:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// 處理停止捕獲
-async function handleStopCapture() {
-  if (!captureState.isCapturing) {
-    return { success: false, error: '沒有活動的捕獲' };
-  }
-  
-  try {
-    // 停止錄製
-    captureState.mediaCaptureManager.stopRecording();
-    
-    // 重置狀態
-    captureState.isCapturing = false;
-    
-    // 發送狀態更新
-    chrome.runtime.sendMessage({
-      action: 'captureStateChanged',
-      state: { isCapturing: false }
-    });
-    
-    return { success: true };
-  } catch (error) {
-    console.error('停止捕獲失敗:', error);
-    return { success: false, error: error.message };
-  }
-}

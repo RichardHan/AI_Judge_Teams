@@ -8,6 +8,9 @@ let popupState = {
 // 初始化彈出窗口
 async function initializePopup() {
   try {
+    // 初始化設置
+    await initializeSettings();
+    
     // 加載團隊列表
     await loadTeams();
     
@@ -25,8 +28,12 @@ async function initializePopup() {
 // 加載團隊列表
 async function loadTeams() {
   try {
-    // TODO: 從存儲中加載團隊列表
-    popupState.teams = [];
+    // 測試用假資料
+    popupState.teams = [
+      { id: 'team1', name: 'Team 1' },
+      { id: 'team2', name: 'Team 2' },
+      { id: 'team3', name: 'Team 3' }
+    ];
     
     const teamSelector = document.getElementById('teamSelector');
     if (!teamSelector) return;
@@ -179,12 +186,42 @@ async function handleTeamChange(event) {
 
 // 顯示錯誤消息
 function showError(message) {
+  console.error('Error:', message);
+  
   const errorElement = document.getElementById('error');
   if (errorElement) {
     errorElement.textContent = message;
     errorElement.style.display = 'block';
     setTimeout(() => {
       errorElement.style.display = 'none';
+    }, 3000);
+  } else {
+    // 如果找不到錯誤元素，建立一個臨時通知
+    const tempError = document.createElement('div');
+    tempError.className = 'error-message';
+    tempError.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 16px 24px;
+      background-color: #f8d7da;
+      color: #721c24;
+      border-radius: 8px;
+      z-index: 9999;
+      max-width: 90vw;
+      width: 350px;
+      font-size: 15px;
+      white-space: pre-line;
+      word-break: break-word;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      text-align: left;
+    `;
+    tempError.textContent = message;
+    document.body.appendChild(tempError);
+    
+    setTimeout(() => {
+      document.body.removeChild(tempError);
     }, 3000);
   }
 }
@@ -203,7 +240,25 @@ document.addEventListener('DOMContentLoaded', initializePopup);
 // 初始化設置
 async function initializeSettings() {
   try {
-    const settings = await apiService.loadSettings();
+    // 等待 APIService 初始化完成
+    if (!window.APIService) {
+      await new Promise((resolve, reject) => {
+        const checkAPIService = setInterval(() => {
+          if (window.APIService) {
+            clearInterval(checkAPIService);
+            resolve();
+          }
+        }, 100);
+
+        // 設置超時
+        setTimeout(() => {
+          clearInterval(checkAPIService);
+          reject(new Error('APIService initialization timeout'));
+        }, 5000);
+      });
+    }
+
+    const settings = await window.APIService.loadSettings();
     
     // 填充設置表單
     document.getElementById('apiEndpoint').value = settings.apiEndpoint || 'https://api.openai.com/v1';
@@ -216,7 +271,7 @@ async function initializeSettings() {
     setupSettingsListeners();
   } catch (error) {
     console.error('Failed to initialize settings:', error);
-    showError('Failed to load settings');
+    showError(error.message || 'Failed to load settings');
   }
 }
 
@@ -250,17 +305,17 @@ async function handleSaveSettings() {
       throw new Error('API Endpoint and API Key are required');
     }
     
-    // 保存設置
-    await apiService.saveSettings(settings);
+    await window.APIService.saveSettings(settings);
     showSuccess('Settings saved successfully');
   } catch (error) {
     console.error('Failed to save settings:', error);
-    showError(error.message);
+    showError(error.message || 'Failed to save settings');
   }
 }
 
 // 處理測試連接
 async function handleTestConnection() {
+  console.log('Test Connection button clicked');
   try {
     const endpoint = document.getElementById('apiEndpoint').value.trim();
     const apiKey = document.getElementById('apiKey').value.trim();
@@ -269,43 +324,73 @@ async function handleTestConnection() {
       throw new Error('API Endpoint and API Key are required');
     }
     
-    // 顯示測試中狀態
-    const testButton = document.getElementById('testConnection');
-    const originalText = testButton.textContent;
-    testButton.textContent = 'Testing...';
-    testButton.disabled = true;
-    
-    // 驗證端點
-    const result = await apiService.validateEndpoint(endpoint);
-    
+    const result = await window.APIService.validateEndpoint(endpoint);
     if (result.valid) {
-      showSuccess('Connection successful! Available models: ' + 
-        result.models.map(m => m.id).join(', '));
+      // 動態生成模型選單
+      if (result.models && Array.isArray(result.models) && result.models.length > 0) {
+        const modelSelect = document.getElementById('model');
+        modelSelect.innerHTML = '';
+        // 先排序
+        const sortedModels = result.models.slice().sort((a, b) => {
+          const aId = typeof a === 'string' ? a : a.id;
+          const bId = typeof b === 'string' ? b : b.id;
+          return aId.localeCompare(bId);
+        });
+        sortedModels.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id || m;
+          opt.textContent = m.id || m;
+          modelSelect.appendChild(opt);
+        });
+      }
+      showSuccess('Connection successful! Available models updated.');
     } else {
       throw new Error(result.error || 'Connection failed');
     }
   } catch (error) {
     console.error('Connection test failed:', error);
-    showError(error.message);
-  } finally {
-    // 恢復按鈕狀態
-    const testButton = document.getElementById('testConnection');
-    testButton.textContent = 'Test Connection';
-    testButton.disabled = false;
+    showError(error.message || 'Connection test failed');
   }
 }
 
 // 顯示成功消息
 function showSuccess(message) {
-  // TODO: 實現成功提示UI
   console.log('Success:', message);
-}
-
-// 顯示錯誤消息
-function showError(message) {
-  // TODO: 實現錯誤提示UI
-  console.error('Error:', message);
-}
-
-// 當文檔加載完成時初始化
-document.addEventListener('DOMContentLoaded', initializeSettings); 
+  
+  const successElement = document.getElementById('success');
+  if (successElement) {
+    successElement.textContent = message;
+    successElement.style.display = 'block';
+    setTimeout(() => {
+      successElement.style.display = 'none';
+    }, 3000);
+  } else {
+    // 如果找不到成功元素，建立一個臨時通知
+    const tempSuccess = document.createElement('div');
+    tempSuccess.className = 'success-message';
+    tempSuccess.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 16px 24px;
+      background-color: #d4edda;
+      color: #155724;
+      border-radius: 8px;
+      z-index: 9999;
+      max-width: 90vw;
+      width: 350px;
+      font-size: 15px;
+      white-space: pre-line;
+      word-break: break-word;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      text-align: left;
+    `;
+    tempSuccess.textContent = message;
+    document.body.appendChild(tempSuccess);
+    
+    setTimeout(() => {
+      document.body.removeChild(tempSuccess);
+    }, 3000);
+  }
+} 

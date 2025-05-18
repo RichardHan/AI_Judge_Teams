@@ -8,7 +8,18 @@ class APIService {
       maxTokens: 2000,
       temperature: 0.7
     };
-    this.loadSettings();
+    this.initialized = false;
+  }
+
+  async initialize() {
+    if (this.initialized) return;
+    try {
+      await this.loadSettings();
+      this.initialized = true;
+    } catch (error) {
+      console.error('Failed to initialize APIService:', error);
+      throw error;
+    }
   }
 
   async loadSettings() {
@@ -17,8 +28,10 @@ class APIService {
       if (storedSettings.apiSettings) {
         this.settings = { ...this.settings, ...storedSettings.apiSettings };
       }
+      return this.settings;
     } catch (error) {
       console.error('Failed to load API settings:', error);
+      throw error;
     }
   }
 
@@ -171,5 +184,10 @@ Format the response in a structured way with clear sections and bullet points.`;
   }
 }
 
-// Export the service
-export default new APIService();
+// Create and initialize the service
+const apiService = new APIService();
+apiService.initialize().then(() => {
+  window.APIService = apiService;
+}).catch(error => {
+  console.error('Failed to initialize APIService:', error);
+});
