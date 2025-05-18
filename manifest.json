@@ -20,15 +20,27 @@
   ],
   "host_permissions": [
     "*://*.teams.microsoft.com/*",
-    "*://*.openai.com/*"
+    "*://*.openai.com/*",
+    "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "scripts/background.js"
   },
   "content_scripts": [
     {
       "matches": ["*://*.teams.microsoft.com/*"],
-      "js": ["content.js"]
+      "js": ["scripts/content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "styles/*.css",
+        "views/*.js",
+        "scripts/*.js",
+        "dashboard.html"
+      ],
+      "matches": ["<all_urls>"]
     }
   ]
 }

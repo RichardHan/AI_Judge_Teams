@@ -24,22 +24,38 @@
     </div>
     
     <div class="settings-panel">
-      <h3>設置</h3>
+      <h3>API Settings</h3>
       <div class="form-group">
-        <label for="apiKey">OpenAI API Key:</label>
+        <label for="apiEndpoint">API Endpoint:</label>
+        <input type="url" id="apiEndpoint" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="form-group">
+        <label for="apiKey">API Key:</label>
         <input type="password" id="apiKey" placeholder="sk-...">
       </div>
       <div class="form-group">
-        <label for="captureMode">捕獲模式:</label>
-        <select id="captureMode">
-          <option value="tab">標籤頁捕獲</option>
-          <option value="desktop">桌面捕獲</option>
+        <label for="model">Model:</label>
+        <select id="model">
+          <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
+          <option value="gpt-4">GPT-4</option>
+          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
         </select>
       </div>
-      <button id="saveSettings" class="btn success">保存設置</button>
+      <div class="form-group">
+        <label for="maxTokens">Max Tokens:</label>
+        <input type="number" id="maxTokens" min="1" max="4000" value="2000">
+      </div>
+      <div class="form-group">
+        <label for="temperature">Temperature:</label>
+        <input type="number" id="temperature" min="0" max="2" step="0.1" value="0.7">
+      </div>
+      <button id="testConnection" class="btn secondary">Test Connection</button>
+      <button id="saveSettings" class="btn success">Save Settings</button>
     </div>
   </div>
   
+  <script src="scripts/dataStore.js"></script>
+  <script src="scripts/apiService.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
