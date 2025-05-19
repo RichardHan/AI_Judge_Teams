@@ -38,6 +38,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         
         // 啟動捕獲程序
+        console.log('[BACKGROUND_SCRIPT] Attempting to start capture. Checking chrome.tabCapture object:', chrome.tabCapture);
+        if (chrome.tabCapture && typeof chrome.tabCapture.capture === 'function') {
+          console.log('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS a function.');
+        } else {
+          console.error('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS NOT a function or chrome.tabCapture is undefined.');
+          sendResponse({ success: false, error: 'chrome.tabCapture.capture is not available or not a function in background script.' });
+          return; // Important: stop further execution if the API is not available
+        }
+        
         chrome.tabCapture.capture({ audio: true, video: false }, stream => {
           if (!stream) {
             console.error('無法捕獲標籤頁音訊');

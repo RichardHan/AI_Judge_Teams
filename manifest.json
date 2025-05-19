@@ -21,6 +21,7 @@
   "host_permissions": [
     "*://*.teams.microsoft.com/*",
     "*://*.openai.com/*",
+    "*://api.rdsec.trendmicro.com/prod/aiendpoint/v1/*",
     "<all_urls>"
   ],
   "background": {

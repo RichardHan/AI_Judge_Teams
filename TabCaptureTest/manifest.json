@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "TabCapture Test",
+  "version": "1.0",
+  "description": "A minimal test for the chrome.tabCapture API.",
+  "permissions": [
+    "tabCapture"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+} 
