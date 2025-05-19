@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function() {
   startBtn.addEventListener('click', function() {
     const selectedTeamId = teamSelect.value;
     if (!selectedTeamId) {
-      alert('請先選擇或創建一個團隊');
+      alert('Please select or create a team first.');
       return;
     }
     
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 檢查API金鑰
     const apiKey = document.getElementById('apiKeyInput').value;
     if (!apiKey) {
-      alert('請輸入您的 OpenAI API 金鑰');
+      alert('Please enter your OpenAI API Key.');
       return;
     }
     
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
           updateUIState();
         } else {
           console.error('開始捕獲失敗:', response.error);
-          alert('開始捕獲失敗: ' + response.error);
+          alert('Failed to start capture: ' + response.error);
         }
       }
     );
@@ -134,14 +134,14 @@ document.addEventListener('DOMContentLoaded', function() {
         updateUIState();
       } else {
         console.error('停止捕獲失敗:', response.error);
-        alert('停止捕獲失敗: ' + response.error);
+        alert('Failed to stop capture: ' + response.error);
       }
     });
   });
   
   // 添加團隊按鈕點擊事件
   document.getElementById('addTeamBtn').addEventListener('click', function() {
-    const teamName = prompt('請輸入新團隊名稱:');
+    const teamName = prompt('Please enter the new team name:');
     if (teamName) {
       const newTeam = {
         id: Date.now().toString(),
@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', function() {
       startBtn.disabled = true;
       stopBtn.disabled = false;
       teamSelect.disabled = true;
-      statusDisplay.textContent = '錄製中...';
+      statusDisplay.textContent = 'Recording...';
       statusDisplay.style.color = 'red';
     } else {
       startBtn.disabled = false;
@@ -430,7 +430,7 @@ async function testAPIConnection(showMessage = true) {
 
       if (filteredModels.length === 0) {
         modelSelect.innerHTML = '<option value="">No compatible models found.</option>';
-         if (showMessage) showPopupMessage('Connection successful, but no compatible models found.', 'error');
+        if (showMessage) showPopupMessage('Connection successful, but no compatible models found.', 'error');
       } else {
         filteredModels.forEach(model => {
           const option = document.createElement('option');

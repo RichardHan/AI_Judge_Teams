@@ -10,12 +10,12 @@ body {
   background-color: #f9f9f9;
   color: #333;
   line-height: 1.6;
-  min-width: 900px; /* 確保最小寬度 */
+  min-width: 1000px; /* 增加最小寬度確保內容不會太擠 */
 }
 
 .container {
-  max-width: 1600px; /* 增加最大寬度，原來是 1200px */
-  width: 96%; /* 讓容器自動佔用視窗的 96% 寬度 */
+  max-width: 1800px; /* 進一步增加最大寬度 */
+  width: 98%;    /* 佔用更多視窗寬度 */
   margin: 0 auto;
   padding: 20px;
   display: flex;
@@ -85,7 +85,7 @@ h2 {
   gap: 20px;
   margin-bottom: 20px;
   flex: 0 0 auto;
-  max-height: 250px; /* 增加最大高度，原來是 200px */
+  max-height: 300px; /* 再增加團隊和轉錄列表面板的高度 */
 }
 
 .teams-list, .transcripts-list {
@@ -101,7 +101,7 @@ h2 {
 }
 
 .transcripts-list {
-  flex: 1;
+  flex: 1; /* 確保轉錄列表填滿可用空間 */
 }
 
 .transcript-detail {
@@ -113,7 +113,7 @@ h2 {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 400px; /* 增加最小高度 */
+  min-height: 500px; /* 大幅增加轉錄詳情區域的最小高度 */
 }
 
 .detail-header {
@@ -133,7 +133,7 @@ h2 {
 .detail-content {
   flex: 1;
   overflow-y: auto;
-  padding: 15px; /* 增加內邊距，原來是 10px */
+  padding: 20px; /* 為內容區增加更多內邊距 */
   background-color: #f9f9f9;
   border-radius: 4px;
   font-size: 15px; /* 增加字體大小 */

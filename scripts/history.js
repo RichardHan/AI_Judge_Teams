@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     teamsList.innerHTML = '';
     
     if (activeTeams.length === 0) {
-      teamsList.innerHTML = '<div class="empty-state">尚無團隊</div>';
+      teamsList.innerHTML = '<div class="empty-state">No teams yet</div>';
       return;
     }
     
@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const team = activeTeams.find(t => t.id === teamId);
     if (!team || !team.transcripts || team.transcripts.length === 0) {
-      transcriptsList.innerHTML = '<div class="empty-state">尚無會議記錄</div>';
+      transcriptsList.innerHTML = '<div class="empty-state">No meeting records yet</div>';
       return;
     }
     
@@ -158,8 +158,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 清空轉錄詳情
   function clearTranscriptDetail() {
-    detailTitle.textContent = '轉錄詳情';
-    detailContent.innerHTML = '<div class="empty-state">請選擇一個會議記錄</div>';
+    detailTitle.textContent = 'Transcript Details';
+    detailContent.innerHTML = '<div class="empty-state">Please select a meeting record</div>';
     
     // 禁用匯出和刪除按鈕
     exportTxtBtn.disabled = true;
@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
   deleteTranscriptBtn.addEventListener('click', function() {
     if (!activeTeamId || !activeTranscriptId) return;
     
-    if (!confirm('確定要刪除這個會議記錄嗎？此操作無法撤銷。')) {
+    if (!confirm('Are you sure you want to delete this meeting record? This action cannot be undone.')) {
       return;
     }
     

@@ -1,9 +1,9 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 2,
   "name": "Teams Meeting Recording & Transcription Assistant",
   "version": "1.0",
   "description": "Automatically record Teams meetings and segment them into text transcripts.",
-  "action": {
+  "browser_action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -16,16 +16,16 @@
     "tabCapture",
     "activeTab",
     "scripting",
-    "downloads"
-  ],
-  "host_permissions": [
+    "downloads",
+    "offscreen",
     "*://*.teams.microsoft.com/*",
     "*://*.openai.com/*",
     "*://api.rdsec.trendmicro.com/prod/aiendpoint/v1/*",
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "scripts/background.js"
+    "scripts": [ "scripts/background.js" ],
+    "persistent": true
   },
   "content_scripts": [
     {
@@ -34,13 +34,8 @@
     }
   ],
   "web_accessible_resources": [
-    {
-      "resources": [
-        "styles/*.css",
-        "scripts/*.js",
-        "history.html"
-      ],
-      "matches": ["<all_urls>"]
-    }
+    "styles/*.css",
+    "scripts/*.js",
+    "history.html"
   ]
 }

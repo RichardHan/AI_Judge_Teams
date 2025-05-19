@@ -81,6 +81,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const reader = new FileReader();
               reader.onloadend = () => {
                 const base64data = reader.result.split(',')[1];
+                // Save the audio blob before sending for transcription
+                saveAudioBlobToFile(audioBlob, "segment");
+
                 // 傳給 popup 處理
                 chrome.runtime.sendMessage({
                   action: 'audioChunk',
@@ -182,6 +185,9 @@ function stopCapturing() {
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64data = reader.result.split(',')[1];
+      // Save the final audio blob
+      saveAudioBlobToFile(audioBlob, "final_segment");
+
       // 傳給 popup 處理
       chrome.runtime.sendMessage({
         action: 'audioChunk',
@@ -192,4 +198,32 @@ function stopCapturing() {
     };
     reader.readAsDataURL(audioBlob);
   }
+}
+
+// Helper function to save audio blob to a file
+function saveAudioBlobToFile(audioBlob, segmentType) {
+  if (!captureState.activeTeamId) {
+    console.warn('Cannot save audio file: activeTeamId is not set.');
+    return;
+  }
+
+  const timestamp = new Date().toISOString().replace(/:/g, '-'); // Sanitize timestamp for filename
+  const filename = `audio_capture/${captureState.activeTeamId}_${segmentType}_${timestamp}.webm`;
+
+  const url = URL.createObjectURL(audioBlob);
+
+  chrome.downloads.download({
+    url: url,
+    filename: filename,
+    saveAs: false // Set to true if you want the user to be prompted for save location each time
+  }, (downloadId) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error downloading audio file:', chrome.runtime.lastError.message);
+    } else {
+      console.log('Audio segment saved as:', filename, 'Download ID:', downloadId);
+    }
+    // It's good practice to revoke the object URL after the download has started or failed,
+    // but with downloads, it's tricky. Chrome handles revocation for `chrome.downloads`.
+    // If not using chrome.downloads, you'd do URL.revokeObjectURL(url) in a timeout or callback.
+  });
 }
