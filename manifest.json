@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AI Hackathon Judge",
+  "name": "Teams Meeting Recording & Transcription Assistant",
   "version": "1.0",
-  "description": "自動捕獲 Teams 會議並進行 AI 分析評分",
+  "description": "Automatically record Teams meetings and segment them into text transcripts.",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -14,9 +14,9 @@
   "permissions": [
     "storage",
     "tabCapture",
-    "desktopCapture",
     "activeTab",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "*://*.teams.microsoft.com/*",
@@ -36,9 +36,8 @@
     {
       "resources": [
         "styles/*.css",
-        "views/*.js",
         "scripts/*.js",
-        "dashboard.html"
+        "history.html"
       ],
       "matches": ["<all_urls>"]
     }

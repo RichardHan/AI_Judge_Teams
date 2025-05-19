@@ -6,6 +6,13 @@ let captureState = {
   startTime: null
 };
 
+// 錄音相關
+let captureStream = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let transcribeInterval = null;
+let activeTabId = null;
+
 // 初始化監聽器
 chrome.runtime.onInstalled.addListener(() => {
   console.log('AI Hackathon Judge 擴展已安裝');
@@ -25,21 +32,71 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'startCapture':
       try {
-        // 這裡將來會實現實際捕獲功能
-        captureState.isCapturing = true;
-        captureState.activeTeamId = message.options.teamId;
-        captureState.captureMode = message.options.captureMode;
-        captureState.startTime = Date.now();
+        // 如果已經在捕獲，先停止
+        if (captureState.isCapturing) {
+          stopCapturing();
+        }
         
-        sendResponse({ success: true });
-        
-        // 通知所有打開的擴展頁面狀態已更改
-        chrome.runtime.sendMessage({
-          action: 'captureStateChanged',
-          state: {
-            isCapturing: captureState.isCapturing
+        // 啟動捕獲程序
+        chrome.tabCapture.capture({ audio: true, video: false }, stream => {
+          if (!stream) {
+            console.error('無法捕獲標籤頁音訊');
+            sendResponse({ success: false, error: '無法捕獲標籤頁音訊' });
+            return;
           }
+          
+          captureStream = stream;
+          audioChunks = [];
+          captureState.isCapturing = true;
+          captureState.activeTeamId = message.options.teamId;
+          captureState.captureMode = message.options.captureMode;
+          captureState.startTime = Date.now();
+          
+          // 設置音訊錄製
+          mediaRecorder = new MediaRecorder(stream);
+          mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) {
+              audioChunks.push(e.data);
+              console.log('收集音訊區塊:', audioChunks.length, e.data.size, 'bytes');
+            }
+          };
+          mediaRecorder.start();
+          
+          // 每 10 秒轉錄一次
+          transcribeInterval = setInterval(() => {
+            if (audioChunks.length > 0) {
+              const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+              audioChunks = []; // 清空，開始收集下一段
+              
+              // 把音訊 blob 轉成 base64 再傳送
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64data = reader.result.split(',')[1];
+                // 傳給 popup 處理
+                chrome.runtime.sendMessage({
+                  action: 'audioChunk',
+                  audioBase64: base64data,
+                  timestamp: new Date().toISOString()
+                });
+              };
+              reader.readAsDataURL(audioBlob);
+              
+              // 啟動新的錄製
+              mediaRecorder.start();
+            }
+          }, 10000);
+          
+          // 通知所有打開的擴展頁面狀態已更改
+          chrome.runtime.sendMessage({
+            action: 'captureStateChanged',
+            state: {
+              isCapturing: captureState.isCapturing
+            }
+          });
+          
+          sendResponse({ success: true });
         });
+        
       } catch (error) {
         console.error('開始捕獲失敗:', error);
         sendResponse({ success: false, error: error.message });
@@ -48,9 +105,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'stopCapture':
       try {
-        // 這裡將來會停止捕獲功能
-        captureState.isCapturing = false;
-        
+        stopCapturing();
         sendResponse({ success: true });
         
         // 通知所有打開的擴展頁面狀態已更改
@@ -90,3 +145,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 為異步響應返回 true
   return true;
 });
+
+// 停止所有捕獲
+function stopCapturing() {
+  captureState.isCapturing = false;
+  
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  
+  if (captureStream) {
+    captureStream.getTracks().forEach(track => track.stop());
+    captureStream = null;
+  }
+  
+  if (transcribeInterval) {
+    clearInterval(transcribeInterval);
+    transcribeInterval = null;
+  }
+  
+  // 處理剩餘的音訊區塊
+  if (audioChunks.length > 0) {
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    audioChunks = [];
+    
+    // 把音訊 blob 轉成 base64 再傳送
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64data = reader.result.split(',')[1];
+      // 傳給 popup 處理
+      chrome.runtime.sendMessage({
+        action: 'audioChunk',
+        audioBase64: base64data,
+        timestamp: new Date().toISOString(),
+        isFinal: true
+      });
+    };
+    reader.readAsDataURL(audioBlob);
+  }
+}

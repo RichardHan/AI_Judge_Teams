@@ -1,0 +1,226 @@
+/* Reset & Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f9f9f9;
+  color: #333;
+  line-height: 1.6;
+  min-width: 900px; /* 確保最小寬度 */
+}
+
+.container {
+  max-width: 1600px; /* 增加最大寬度，原來是 1200px */
+  width: 96%; /* 讓容器自動佔用視窗的 96% 寬度 */
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+h1 {
+  color: #6264A7;
+  font-size: 24px;
+}
+
+h2 {
+  color: #444;
+  font-size: 18px;
+  margin-bottom: 15px;
+}
+
+/* Button Styles */
+.btn {
+  border: none;
+  border-radius: 4px;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-back {
+  background-color: #f0f0f0;
+}
+
+.btn-back:hover {
+  background-color: #e0e0e0;
+}
+
+.btn-action {
+  background-color: #6264A7;
+  color: white;
+}
+
+.btn-action:hover {
+  background-color: #4a4c8c;
+}
+
+.btn-danger {
+  background-color: #d9534f;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #c9302c;
+}
+
+/* Main Layout */
+.teams-panel {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  flex: 0 0 auto;
+  max-height: 250px; /* 增加最大高度，原來是 200px */
+}
+
+.teams-list, .transcripts-list {
+  background-color: white;
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+}
+
+.teams-list {
+  flex: 0 0 250px; /* 增加寬度，原來是 200px */
+}
+
+.transcripts-list {
+  flex: 1;
+}
+
+.transcript-detail {
+  flex: 1;
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px; /* 增加內邊距，原來是 15px */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 400px; /* 增加最小高度 */
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.detail-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px; /* 增加內邊距，原來是 10px */
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  font-size: 15px; /* 增加字體大小 */
+  line-height: 1.7; /* 增加行高 */
+}
+
+/* Team List Items */
+.team-item {
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.team-item:hover {
+  background-color: #f0f0f0;
+}
+
+.team-item.active {
+  background-color: #6264A7;
+  color: white;
+}
+
+/* Transcript List Items */
+.transcript-item {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background-color: #f9f9f9;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.transcript-item:hover {
+  background-color: #f0f0f0;
+}
+
+.transcript-item.active {
+  background-color: #e9ecef;
+  border-left: 3px solid #6264A7;
+}
+
+.transcript-date {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.transcript-preview {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Transcript Detail */
+.chunk-item {
+  margin-bottom: 20px; /* 增加間距，原來是 15px */
+  padding-bottom: 15px; /* 增加間距，原來是 10px */
+  border-bottom: 1px solid #eee;
+}
+
+.chunk-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px; /* 增加間距，原來是 5px */
+  font-size: 13px; /* 增加字體大小，原來是 12px */
+  color: #666;
+}
+
+.chunk-time {
+  background-color: #efefef;
+  padding: 3px 8px; /* 增加內邊距，原來是 2px 6px */
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.chunk-text {
+  font-size: 15px; /* 增加字體大小，原來是 14px */
+  line-height: 1.7; /* 增加行高，原來是 1.5 */
+}
+
+/* Empty States */
+.empty-state {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 20px;
+} 

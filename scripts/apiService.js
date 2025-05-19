@@ -4,49 +4,78 @@ class APIService {
     this.settings = {
       apiKey: '',
       apiEndpoint: this.defaultEndpoint,
-      model: 'gpt-4-turbo-preview',  // Default model
+      model: 'gpt-4.1-nano',  // 預設使用 gpt-4.1-nano
       maxTokens: 2000,
       temperature: 0.7
     };
     this.initialized = false;
+    this.availableModels = [];
   }
 
   async initialize() {
     if (this.initialized) return;
-    try {
-      await this.loadSettings();
-      this.initialized = true;
-    } catch (error) {
-      console.error('Failed to initialize APIService:', error);
-      throw error;
+
+    // Load settings from storage
+    const storedSettings = await this.loadSettings();
+    if (storedSettings) {
+      this.settings = { ...this.settings, ...storedSettings };
     }
+
+    // Validate endpoint and get available models
+    if (this.settings.apiKey && this.settings.apiEndpoint) {
+      const validation = await this.validateEndpoint(this.settings.apiEndpoint);
+      if (validation.valid) {
+        this.availableModels = validation.models;
+      }
+    }
+
+    this.initialized = true;
   }
 
   async loadSettings() {
-    try {
-      const storedSettings = await chrome.storage.sync.get('apiSettings');
-      if (storedSettings.apiSettings) {
-        this.settings = { ...this.settings, ...storedSettings.apiSettings };
-      }
-      return this.settings;
-    } catch (error) {
-      console.error('Failed to load API settings:', error);
-      throw error;
-    }
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['apiSettings'], (result) => {
+        resolve(result.apiSettings || null);
+      });
+    });
   }
 
   async saveSettings(settings) {
-    try {
-      this.settings = { ...this.settings, ...settings };
-      await chrome.storage.sync.set({ apiSettings: this.settings });
-    } catch (error) {
-      console.error('Failed to save API settings:', error);
-      throw error;
+    // Validate endpoint before saving
+    if (settings.apiEndpoint && settings.apiKey) {
+      const validation = await this.validateEndpoint(settings.apiEndpoint);
+      if (!validation.valid) {
+        throw new Error(`無效的 API endpoint: ${validation.error}`);
+      }
+      
+      // 驗證選擇的模型是否可用
+      if (settings.model && !validation.models.includes(settings.model)) {
+        throw new Error(`無效的模型選擇: ${settings.model}`);
+      }
+      
+      this.availableModels = validation.models;
     }
+
+    this.settings = { ...this.settings, ...settings };
+    
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set({ apiSettings: this.settings }, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   async validateEndpoint(endpoint) {
+    console.log('APIService: Starting endpoint validation for:', endpoint);
     try {
+      // Remove trailing slash if present
+      endpoint = endpoint.replace(/\/$/, '');
+      
+      console.log('APIService: Sending request to:', `${endpoint}/models`);
       const response = await fetch(`${endpoint}/models`, {
         method: 'GET',
         headers: {
@@ -55,17 +84,36 @@ class APIService {
         }
       });
       
+      console.log('APIService: Response status:', response.status);
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('APIService: Validation failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
         throw new Error(`API endpoint validation failed: ${response.statusText}`);
       }
       
       const data = await response.json();
+      console.log('APIService: Received models:', data.data?.length || 0, 'models');
+      
+      const models = data.data || [];
+      const availableModels = models
+        .filter(model => {
+          const id = model.id || model;
+          return !id.includes('embedding') && !id.includes('whisper');
+        })
+        .map(model => model.id || model)
+        .sort();
+
+      console.log('APIService: Available models:', availableModels);
       return {
         valid: true,
-        models: data.data || []
+        models: availableModels
       };
     } catch (error) {
-      console.error('Endpoint validation error:', error);
+      console.error('APIService: Validation error:', error);
       return {
         valid: false,
         error: error.message
@@ -100,94 +148,25 @@ class APIService {
       });
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
+        throw new Error(`API endpoint validation failed: ${response.statusText}`);
       }
-
+      
       const data = await response.json();
-      return this.processEvaluationResponse(data);
+      return data.choices[0].message.content;
     } catch (error) {
-      console.error('Evaluation generation failed:', error);
-      throw error;
-    }
-  }
-
-  prepareEvaluationPrompt(transcript, screenshots) {
-    // Prepare the evaluation prompt based on transcript and screenshots
-    return `Please evaluate the following hackathon presentation:
-
-Transcript:
-${transcript}
-
-Screenshots Analysis:
-${this.analyzeScreenshots(screenshots)}
-
-Please provide a detailed evaluation covering:
-1. Technical Implementation
-2. Innovation and Creativity
-3. Presentation Quality
-4. Team Collaboration
-5. Overall Score (1-10)
-
-Format the response in a structured way with clear sections and bullet points.`;
-  }
-
-  analyzeScreenshots(screenshots) {
-    // Convert screenshots to analysis text
-    return screenshots.map((screenshot, index) => 
-      `Screenshot ${index + 1}: ${screenshot.description || 'No description available'}`
-    ).join('\n');
-  }
-
-  processEvaluationResponse(data) {
-    try {
-      const evaluation = data.choices[0].message.content;
-      return {
-        success: true,
-        evaluation,
-        model: data.model,
-        usage: data.usage
-      };
-    } catch (error) {
-      console.error('Failed to process evaluation response:', error);
-      throw new Error('Invalid API response format');
-    }
-  }
-
-  async transcribeAudio(audioBlob) {
-    try {
-      const endpoint = this.settings.apiEndpoint;
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'audio.webm');
-      formData.append('model', 'whisper-1');
-
-      const response = await fetch(`${endpoint}/audio/transcriptions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.settings.apiKey}`
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error(`Transcription failed: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        text: data.text
-      };
-    } catch (error) {
-      console.error('Audio transcription failed:', error);
+      console.error('API endpoint validation failed:', error);
       throw error;
     }
   }
 }
 
 // Create and initialize the service
-const apiService = new APIService();
-apiService.initialize().then(() => {
-  window.APIService = apiService;
+console.log('Creating APIService instance...');
+window.APIService = new APIService();
+console.log('Starting APIService initialization...');
+window.APIService.initialize().then(() => {
+  console.log('APIService successfully initialized and attached to window');
 }).catch(error => {
   console.error('Failed to initialize APIService:', error);
+  alert('API 服務初始化失敗: ' + error.message);
 });

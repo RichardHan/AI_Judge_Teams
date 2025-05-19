@@ -1,50 +1,50 @@
-// 儀表板狀態管理
+// Dashboard state management
 let dashboardState = {
   teams: [],
   recordings: new Map(), // teamId -> recordings[]
   activeRecordings: new Set()
 };
 
-// 初始化儀表板
+// Initialize dashboard
 async function initializeDashboard() {
   try {
-    // 從存儲中加載團隊數據
+    // Load team data from storage
     const teams = await loadTeams();
     dashboardState.teams = teams;
     
-    // 從存儲中加載錄製數據
+    // Load recording data from storage
     const recordings = await loadRecordings();
     dashboardState.recordings = recordings;
     
-    // 渲染儀表板
+    // Render dashboard
     renderDashboard();
     
-    // 設置定期更新
+    // Set up periodic updates
     setInterval(updateDashboard, 5000);
   } catch (error) {
-    console.error('儀表板初始化失敗:', error);
-    showError('儀表板加載失敗，請刷新頁面重試');
+    console.error('Dashboard initialization failed:', error);
+    showError('Failed to load dashboard, please refresh the page and try again');
   }
 }
 
-// 加載團隊數據
+// Load team data
 async function loadTeams() {
-  // TODO: 實現從存儲中加載團隊數據
+  // TODO: Implement loading team data from storage
   return [];
 }
 
-// 加載錄製數據
+// Load recording data
 async function loadRecordings() {
-  // TODO: 實現從存儲中加載錄製數據
+  // TODO: Implement loading recording data from storage
   return new Map();
 }
 
-// 渲染儀表板
+// Render dashboard
 function renderDashboard() {
   const container = document.querySelector('.dashboard-container');
   if (!container) return;
 
-  // 渲染團隊卡片
+  // Render team cards
   const teamGrid = document.createElement('div');
   teamGrid.className = 'team-grid';
   
@@ -56,7 +56,7 @@ function renderDashboard() {
   container.appendChild(teamGrid);
 }
 
-// 創建團隊卡片
+// Create team card
 function createTeamCard(team) {
   const card = document.createElement('div');
   card.className = 'team-card';
@@ -79,7 +79,7 @@ function createTeamCard(team) {
   return card;
 }
 
-// 創建錄製項目
+// Create recording item
 function createRecordingItem(recording) {
   const item = document.createElement('li');
   item.className = 'recording-item';
@@ -100,12 +100,12 @@ function createRecordingItem(recording) {
   
   const viewButton = document.createElement('button');
   viewButton.className = 'action-button view-button';
-  viewButton.textContent = '查看';
+  viewButton.textContent = 'View';
   viewButton.onclick = () => viewRecording(recording.id);
   
   const deleteButton = document.createElement('button');
   deleteButton.className = 'action-button delete-button';
-  deleteButton.textContent = '刪除';
+  deleteButton.textContent = 'Delete';
   deleteButton.onclick = () => deleteRecording(recording.id);
   
   actions.appendChild(viewButton);
@@ -119,47 +119,47 @@ function createRecordingItem(recording) {
   return item;
 }
 
-// 查看錄製
+// View recording
 async function viewRecording(recordingId) {
   try {
-    // TODO: 實現查看錄製功能
-    console.log('查看錄製:', recordingId);
+    // TODO: Implement view recording functionality
+    console.log('Viewing recording:', recordingId);
   } catch (error) {
-    console.error('查看錄製失敗:', error);
-    showError('無法查看錄製');
+    console.error('Failed to view recording:', error);
+    showError('Unable to view recording');
   }
 }
 
-// 刪除錄製
+// Delete recording
 async function deleteRecording(recordingId) {
   try {
-    // TODO: 實現刪除錄製功能
-    console.log('刪除錄製:', recordingId);
+    // TODO: Implement delete recording functionality
+    console.log('Deleting recording:', recordingId);
   } catch (error) {
-    console.error('刪除錄製失敗:', error);
-    showError('無法刪除錄製');
+    console.error('Failed to delete recording:', error);
+    showError('Unable to delete recording');
   }
 }
 
-// 更新儀表板
+// Update dashboard
 async function updateDashboard() {
   try {
-    // 更新錄製狀態
+    // Update recording status
     const recordings = await loadRecordings();
     dashboardState.recordings = recordings;
     
-    // 重新渲染儀表板
+    // Re-render dashboard
     renderDashboard();
   } catch (error) {
-    console.error('更新儀表板失敗:', error);
+    console.error('Failed to update dashboard:', error);
   }
 }
 
-// 顯示錯誤消息
+// Show error message
 function showError(message) {
-  // TODO: 實現錯誤提示UI
+  // TODO: Implement error notification UI
   console.error(message);
 }
 
-// 當文檔加載完成時初始化儀表板
+// Initialize dashboard when document is loaded
 document.addEventListener('DOMContentLoaded', initializeDashboard); 

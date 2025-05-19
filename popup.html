@@ -1,70 +1,82 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Hackathon 評審助手</title>
+  <title>Teams Meeting Assistant</title>
   <link rel="stylesheet" href="styles/popup.css">
 </head>
 <body>
   <div class="container">
-    <h1>AI Hackathon 評審助手</h1>
+    <h1>Teams Meeting Assistant</h1>
     
-    <div id="error" class="error-message" style="display: none;"></div>
-    
-    <div class="status-panel">
-      <div class="status-indicator">
-        <span class="status-dot"></span>
-        <span class="status-text">未啟動</span>
+    <div class="control-panel">
+      <div class="team-selector">
+        <select id="teamSelect" class="select-field">
+          <option value="" disabled selected>Select Team</option>
+        </select>
+        <button id="addTeamBtn" class="btn btn-small">+</button>
+      </div>
+      
+      <div class="buttons">
+        <button id="startBtn" class="btn btn-primary">Start Recording</button>
+        <button id="stopBtn" class="btn btn-danger" disabled>Stop Recording</button>
+      </div>
+      
+      <div class="status-bar">
+        <span>Status: </span>
+        <span id="status" class="status-text">Ready</span>
+      </div>
+      
+      <div class="toolbar">
+        <button id="settingsBtn" class="btn btn-icon">⚙️</button>
+        <button id="showHistoryBtn" class="btn btn-icon">📋</button>
       </div>
     </div>
     
-    <div class="action-panel">
-      <button id="startButton" class="btn primary">開始捕獲</button>
-      <button id="stopButton" class="btn danger" disabled>停止捕獲</button>
-      <button id="openDashboard" class="btn secondary">開啟儀表板</button>
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="setting-group">
+        <label for="apiEndpointInput">API Endpoint:</label>
+        <input type="text" id="apiEndpointInput" class="input-field" 
+               placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+      </div>
+      <div class="setting-group">
+        <label for="apiKeyInput">OpenAI API Key:</label>
+        <input type="password" id="apiKeyInput" class="input-field" 
+               placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="setting-group">
+        <label for="modelSelect">Select Model:</label>
+        <select id="modelSelect" class="input-field">
+          <option value="">Please test connection first</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
+        <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+      </div>
     </div>
     
-    <div class="settings-panel">
-      <h3>API Settings</h3>
-      <div class="form-group">
-        <label for="teamSelector">團隊：</label>
-        <select id="teamSelector">
-          <option value="">選擇團隊</option>
-          <!-- 團隊選項會由 JS 動態生成 -->
+    <!-- Meeting History Panel -->
+    <div id="historyPanel" class="history-panel hidden">
+      <h2>Meeting History</h2>
+      <div class="history-controls">
+        <select id="historyTeamSelect" class="select-field">
+          <option value="">All Teams</option>
         </select>
+        <button id="refreshHistoryBtn" class="btn btn-secondary btn-sm">Refresh</button>
       </div>
-      <div class="form-group">
-        <label for="apiEndpoint">API Endpoint:</label>
-        <input type="url" id="apiEndpoint" placeholder="https://api.openai.com/v1">
+      <div id="historyContainer" class="history-container">
+        <!-- Meeting history will be dynamically filled here -->
       </div>
-      <div class="form-group">
-        <label for="apiKey">API Key:</label>
-        <input type="password" id="apiKey" placeholder="sk-...">
-      </div>
-      <div class="form-group">
-        <label for="model">Model:</label>
-        <select id="model">
-          <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
-          <option value="gpt-4">GPT-4</option>
-          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="maxTokens">Max Tokens:</label>
-        <input type="number" id="maxTokens" min="1" max="4000" value="2000">
-      </div>
-      <div class="form-group">
-        <label for="temperature">Temperature:</label>
-        <input type="number" id="temperature" min="0" max="2" step="0.1" value="0.7">
-      </div>
-      <button id="testConnection" class="btn secondary">Test Connection</button>
-      <button id="saveSettings" class="btn success">Save Settings</button>
+    </div>
+    
+    <div class="transcript-panel">
+      <h2>Live Transcription</h2>
+      <div id="transcriptContainer" class="transcript-container"></div>
     </div>
   </div>
   
-  <script src="scripts/dataStore.js"></script>
-  <script src="scripts/apiService.js"></script>
-  <script src="popup.js"></script>
+  <script src="scripts/popup.js"></script>
 </body>
 </html>
