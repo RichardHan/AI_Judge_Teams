@@ -105,7 +105,10 @@ AI_Judge_Teams/
    - Check internet connection
    - Review API usage quota
 
-3. If extension becomes unresponsive:
+3. If a "Save As" dialog appears unexpectedly when saving recordings:
+   - Check Chrome's download settings. Go to `chrome://settings/downloads` and ensure that "Ask where to save each file before downloading" is turned OFF. This global Chrome setting can override the extension's attempt to save files directly.
+
+4. If extension becomes unresponsive:
    - Reload the extension
    - Clear browser cache
    - Reinstall the extension

@@ -4,7 +4,8 @@ let captureState = {
   isCapturing: false,
   activeTeamId: null,
   captureMode: null,
-  startTime: null
+  startTime: null,
+  segmentNumber: 0  // Track segment number to help with file naming
 };
 
 // 錄音相關
@@ -13,6 +14,7 @@ let mediaRecorder = null;
 let audioChunks = [];
 let transcribeInterval = null;
 let activeTabId = null;
+let recordingActiveTab = null; // Store the active tab ID we're recording from
 
 // 初始化監聽器
 chrome.runtime.onInstalled.addListener(() => {
@@ -35,6 +37,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'startCapture':
       console.log('[BACKGROUND_SCRIPT] Action: startCapture', message.options);
+      console.log('[BACKGROUND_SCRIPT] Checking MediaRecorder MIME type support:');
+      console.log(`  audio/webm: ${MediaRecorder.isTypeSupported('audio/webm')}`);
+      console.log(`  audio/opus: ${MediaRecorder.isTypeSupported('audio/opus')}`); // Opus is often used in webm
+      console.log(`  audio/ogg; codecs=opus: ${MediaRecorder.isTypeSupported('audio/ogg; codecs=opus')}`);
+      console.log(`  audio/mpeg: ${MediaRecorder.isTypeSupported('audio/mpeg')}`); // For MP3
+      console.log(`  audio/mp3: ${MediaRecorder.isTypeSupported('audio/mp3')}`);   // Also for MP3
       try {
         // 如果已經在捕獲，先停止
         if (captureState.isCapturing) {
@@ -42,112 +50,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           stopCapturing();
         }
         
-        // 啟動捕獲程序
-        console.log('[BACKGROUND_SCRIPT] Attempting to start capture. Checking chrome.tabCapture object:', chrome.tabCapture);
-        if (chrome.tabCapture && typeof chrome.tabCapture.capture === 'function') {
-          console.log('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS a function.');
-        } else {
-          console.error('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS NOT a function or chrome.tabCapture is undefined.');
-          sendResponse({ success: false, error: 'chrome.tabCapture.capture is not available or not a function in background script.' });
-          return; // Important: stop further execution if the API is not available
-        }
+        // Store state before starting capture
+        captureState.isCapturing = true;
+        captureState.activeTeamId = message.options.teamId;
+        console.log(`[BACKGROUND_SCRIPT] captureState.activeTeamId set to: ${captureState.activeTeamId} from message options.`);
+        captureState.captureMode = message.options.captureMode;
+        captureState.startTime = Date.now();
+        captureState.segmentNumber = 0; // Reset segment counter
         
-        chrome.tabCapture.capture({ audio: true, video: false }, stream => {
-          if (!stream) {
-            console.error('無法捕獲標籤頁音訊');
-            sendResponse({ success: false, error: '無法捕獲標籤頁音訊' });
-            return;
+        // Start the first segment capture - this will also set the recordingActiveTab value
+        captureNewSegment();
+        
+        // Set interval to capture new segments every 10 seconds
+        if (transcribeInterval) clearInterval(transcribeInterval);
+        transcribeInterval = setInterval(() => {
+          if (captureState.isCapturing) {
+            // Stop current recording if it exists
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+              console.log('[BACKGROUND_SCRIPT] Stopping current segment recording to start a new one');
+              mediaRecorder.stop();
+              // Processing of this segment will happen in mediaRecorder.onstop handler
+            }
+            
+            // Wait a small amount of time to ensure previous recorder has finished
+            setTimeout(() => {
+              // Only start a new capture if we're still recording
+              if (captureState.isCapturing) {
+                captureNewSegment();
+              }
+            }, 500);
           }
-          console.log('[BACKGROUND_SCRIPT] Tab capture successful, stream obtained.');
-          
-          captureStream = stream;
-          audioChunks = []; // Reset audioChunks
-          captureState.isCapturing = true;
-          captureState.activeTeamId = message.options.teamId;
-          console.log(`[BACKGROUND_SCRIPT] captureState.activeTeamId set to: ${captureState.activeTeamId} from message options.`);
-          captureState.captureMode = message.options.captureMode;
-          captureState.startTime = Date.now();
-          
-          // 設置音訊錄製
-          mediaRecorder = new MediaRecorder(stream);
-          
-          mediaRecorder.ondataavailable = e => {
-            console.log('[BACKGROUND_SCRIPT] ondataavailable triggered.');
-            if (e.data.size > 0) {
-              audioChunks.push(e.data);
-              console.log('收集音訊區塊:', audioChunks.length, e.data.size, 'bytes', 'Current audioChunks (sizes):', JSON.stringify(audioChunks.map(chunk => chunk.size)));
-            }
-          };
-
-          mediaRecorder.onstop = () => {
-            console.log('[BACKGROUND_SCRIPT] mediaRecorder.onstop event fired. Current audioChunks.length:', audioChunks.length);
-            if (audioChunks.length > 0) {
-              const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-              audioChunks = []; // Clear after processing
-              
-              saveAudioBlobToFile(audioBlob, "final_segment");
-
-              // 傳給 popup 處理最後的音訊
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64data = reader.result.split(',')[1];
-                console.log('[BACKGROUND_SCRIPT] Sending final audioChunk (from onstop) to popup.');
-                chrome.runtime.sendMessage({
-                  action: 'audioChunk',
-                  audioBase64: base64data,
-                  timestamp: new Date().toISOString(),
-                  isFinal: true
-                });
-              };
-              reader.readAsDataURL(audioBlob);
-            } else {
-              console.log('[BACKGROUND_SCRIPT] mediaRecorder.onstop: No audio chunks to process.');
-            }
-          };
-          
-          mediaRecorder.start(10000); // Start recording with 10-second timeslices
-          console.log('[BACKGROUND_SCRIPT] MediaRecorder started with 10-second timeslices.');
-          
-          // 每 10 秒處理一次累積的音訊區塊 (由 ondataavailable 填充)
-          if (transcribeInterval) clearInterval(transcribeInterval); // Clear any existing interval
-          transcribeInterval = setInterval(() => {
-            console.log('[BACKGROUND_SCRIPT] transcribeInterval fired. audioChunks.length:', audioChunks.length);
-            if (audioChunks.length > 0) {
-              // Create a blob from all current chunks for this segment
-              const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-              audioChunks = []; // Important: Clear chunks after creating blob for this segment
-              
-              saveAudioBlobToFile(audioBlob, "segment");
-
-              // 把音訊 blob 轉成 base64 再傳送
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64data = reader.result.split(',')[1];
-                console.log('[BACKGROUND_SCRIPT] Sending audioChunk (segment) to popup.');
-                chrome.runtime.sendMessage({
-                  action: 'audioChunk',
-                  audioBase64: base64data,
-                  timestamp: new Date().toISOString()
-                });
-              };
-              reader.readAsDataURL(audioBlob);
-              
-              // No need to call mediaRecorder.start() here anymore
-            }
-          }, 10000); // Interval matches timeslice for simplicity
-          
-          // 通知所有打開的擴展頁面狀態已更改
-          chrome.runtime.sendMessage({
-            action: 'captureStateChanged',
-            state: {
-              isCapturing: captureState.isCapturing
-            }
-          });
-          
-          sendResponse({ success: true });
-          console.log('[BACKGROUND_SCRIPT] startCapture successful.');
-        });
+        }, 10000);
         
+        sendResponse({ success: true });
       } catch (error) {
         console.error('開始捕獲失敗:', error);
         sendResponse({ success: false, error: error.message });
@@ -200,9 +135,144 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// Function to capture a new segment with a fresh stream
+function captureNewSegment() {
+  console.log('[BACKGROUND_SCRIPT] Starting new segment capture');
+  
+  // First check if we're still on the tab we want to record
+  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+    if (tabs.length === 0) {
+      console.error('[BACKGROUND_SCRIPT] No active tab found for recording');
+      return;
+    }
+    
+    const currentActiveTab = tabs[0].id;
+    
+    // If this is the first segment, set recordingActiveTab
+    if (!recordingActiveTab) {
+      recordingActiveTab = currentActiveTab;
+      console.log(`[BACKGROUND_SCRIPT] Recording from active tab with ID: ${recordingActiveTab}`);
+    } else if (currentActiveTab !== recordingActiveTab) {
+      console.warn(`[BACKGROUND_SCRIPT] WARNING: Active tab has changed from ${recordingActiveTab} to ${currentActiveTab}. Please return to the original tab for best results.`);
+      // We could send a notification to the popup here to alert the user
+    }
+    
+    // 啟動捕獲程序
+    console.log('[BACKGROUND_SCRIPT] Attempting to start capture. Checking chrome.tabCapture object:', chrome.tabCapture);
+    if (chrome.tabCapture && typeof chrome.tabCapture.capture === 'function') {
+      console.log('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS a function.');
+    } else {
+      console.error('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS NOT a function or chrome.tabCapture is undefined.');
+      return;
+    }
+    
+    // NOTE: chrome.tabCapture.capture can only capture the currently active tab
+    // It does not support specifying a tabId, so we removed that parameter
+    chrome.tabCapture.capture({ audio: true, video: false }, stream => {
+      if (!stream) {
+        console.error('[BACKGROUND_SCRIPT] Failed to capture tab audio for new segment');
+        return;
+      }
+      console.log('[BACKGROUND_SCRIPT] Tab capture successful for new segment, stream obtained.');
+      
+      console.log('[BACKGROUND_SCRIPT] Attempting to inspect audio tracks...');
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        audioTracks.forEach((track, index) => {
+          console.log(`[BACKGROUND_SCRIPT] Audio Track ${index}: id=${track.id}, label='${track.label}', enabled=${track.enabled}, muted=${track.muted}, readyState='${track.readyState}'`);
+          // Log when track events occur DURING the recording
+          track.onended = () => console.error(`[BACKGROUND_SCRIPT] CRITICAL: Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has ENDED.`);
+          track.onmute = () => console.warn(`[BACKGROUND_SCRIPT] WARNING: Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has been MUTED.`);
+          track.onunmute = () => console.log(`[BACKGROUND_SCRIPT] Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has been UNMUTED.`);
+        });
+      } else {
+        console.warn('[BACKGROUND_SCRIPT] No audio tracks found in the captured stream!');
+      }
+      console.log('[BACKGROUND_SCRIPT] Finished inspecting audio tracks.');
+      
+      // Store the new stream
+      if (captureStream) {
+        // Safely close the old stream before replacing it
+        captureStream.getTracks().forEach(track => track.stop());
+      }
+      captureStream = stream;
+      
+      // Reset audioChunks for the new segment
+      audioChunks = [];
+      
+      // Increment segment counter
+      captureState.segmentNumber++;
+      console.log(`[BACKGROUND_SCRIPT] Recording segment #${captureState.segmentNumber}`);
+      
+      // 設置音訊錄製
+      mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorder.ondataavailable = e => {
+        console.log('[BACKGROUND_SCRIPT] ondataavailable triggered.');
+        if (e.data.size > 0) {
+          audioChunks.push(e.data);
+          console.log('收集音訊區塊:', audioChunks.length, e.data.size, 'bytes', 'Current audioChunks (sizes):', JSON.stringify(audioChunks.map(chunk => chunk.size)));
+        }
+      };
+      
+      mediaRecorder.onerror = (event) => {
+        console.error('[BACKGROUND_SCRIPT] MediaRecorder error:', event.error);
+      };
+      
+      mediaRecorder.onstop = () => {
+        console.log(`[BACKGROUND_SCRIPT] mediaRecorder.onstop event fired for segment #${captureState.segmentNumber}. Current audioChunks.length:`, audioChunks.length);
+        if (audioChunks.length > 0) {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const isFinal = !captureState.isCapturing; // If we're no longer capturing, this is the final segment
+          
+          // Save the segment
+          saveAudioBlobToFile(audioBlob, isFinal ? "final_segment" : "segment");
+          
+          // 把音訊 blob 轉成 base64 再傳送
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64data = reader.result.split(',')[1];
+            console.log(`[BACKGROUND_SCRIPT] Sending ${isFinal ? 'final ' : ''}audioChunk (from onstop) to popup.`);
+            chrome.runtime.sendMessage({
+              action: 'audioChunk',
+              audioBase64: base64data,
+              timestamp: new Date().toISOString(),
+              isFinal: isFinal
+            });
+          };
+          reader.readAsDataURL(audioBlob);
+          
+          // Clear chunks after processing
+          audioChunks = [];
+        } else {
+          console.log('[BACKGROUND_SCRIPT] mediaRecorder.onstop: No audio chunks to process.');
+        }
+        
+        // Stop stream tracks when done to avoid resource leaks
+        if (captureStream && (!captureState.isCapturing || 
+            (mediaRecorder && mediaRecorder.state === 'inactive'))) {
+          captureStream.getTracks().forEach(track => {
+            if (track.readyState === 'live') {
+              track.stop();
+            }
+          });
+          captureStream = null;
+        }
+      };
+      
+      // Start recording
+      mediaRecorder.start();
+      console.log(`[BACKGROUND_SCRIPT] MediaRecorder started for segment #${captureState.segmentNumber}`);
+    });
+  });
+}
+
 // 停止所有捕獲
 function stopCapturing() {
   console.log('[BACKGROUND_SCRIPT] stopCapturing called.');
+  
+  // Set state flag first so no new segments will start
+  captureState.isCapturing = false; 
   
   if (transcribeInterval) {
     clearInterval(transcribeInterval);
@@ -213,31 +283,24 @@ function stopCapturing() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop(); // This will trigger ondataavailable with any final data, then onstop
     console.log('[BACKGROUND_SCRIPT] mediaRecorder.stop() called.');
-  } else if (mediaRecorder && mediaRecorder.state === 'paused') { // Should not happen with current logic
-     mediaRecorder.stop();
-     console.log('[BACKGROUND_SCRIPT] mediaRecorder.stop() called from paused state.');
-  } else {
-    console.log('[BACKGROUND_SCRIPT] MediaRecorder not recording or already stopped.');
-    // Fallback: If onstop didn't handle for some reason, or recorder was never active.
-    // This case should ideally not be hit if onstop works as expected.
-    if (audioChunks.length > 0) {
-        console.warn('[BACKGROUND_SCRIPT] Processing residual audio chunks in stopCapturing as a fallback.');
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        audioChunks = [];
-        saveAudioBlobToFile(audioBlob, "final_segment_fallback");
-        // Consider sending to popup as well if this fallback is critical
-    }
   }
   
+  // Clean up stream even if mediaRecorder is not active or not exist
   if (captureStream) {
     captureStream.getTracks().forEach(track => track.stop());
     captureStream = null;
     console.log('[BACKGROUND_SCRIPT] Capture stream tracks stopped.');
   }
   
-  captureState.isCapturing = false; // Set state after operations
-  // Note: Final audio processing and saving is now primarily handled by mediaRecorder.onstop
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
+  
+  // Notify all open extension pages of state change
+  chrome.runtime.sendMessage({
+    action: 'captureStateChanged',
+    state: {
+      isCapturing: captureState.isCapturing
+    }
+  });
 }
 
 // Helper function to save audio blob to a file

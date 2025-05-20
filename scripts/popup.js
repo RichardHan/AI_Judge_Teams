@@ -217,12 +217,18 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       console.log('處理音訊區塊:', message.timestamp);
       
-      // 獲取API金鑰
+      // 獲取API金鑰和端點
       const apiKey = document.getElementById('apiKeyInput').value;
+      const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+      
       if (!apiKey) {
         console.error('沒有設置 OpenAI API 金鑰');
         return;
       }
+      
+      // 確保 API 端點不以斜槓結尾
+      const baseApiUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
+      console.log(`[POPUP_SCRIPT] Using API endpoint for transcription: ${baseApiUrl}`);
       
       // 建立音訊檔案
       const audioBlob = base64ToBlob(message.audioBase64, 'audio/webm');
@@ -233,8 +239,8 @@ document.addEventListener('DOMContentLoaded', function() {
       formData.append('model', 'whisper-1');
       formData.append('language', 'zh');
       
-      // 調用OpenAI Whisper API進行轉錄
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      // 調用Whisper API進行轉錄
+      const response = await fetch(`${baseApiUrl}/audio/transcriptions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`
@@ -488,7 +494,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   if (!modelSelect.value || modelSelect.options.length <=1 && modelSelect.options[0].value === "") {
       showPopupMessage('Testing connection before saving...', 'success');
       const connectionSuccessful = await testAPIConnection(true);
-      if (!connectionSuccessful) {
+      if (!connectionSucccdessful) {
           showPopupMessage('Cannot save settings. API connection failed.', 'error');
           return;
       }
