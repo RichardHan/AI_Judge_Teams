@@ -85,9 +85,11 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 開始捕獲按鈕點擊事件
   startBtn.addEventListener('click', function() {
+    console.log('[POPUP_SCRIPT] Start Recording button clicked.');
     const selectedTeamId = teamSelect.value;
     if (!selectedTeamId) {
       alert('Please select or create a team first.');
+      console.warn('[POPUP_SCRIPT] No team selected.');
       return;
     }
     
@@ -97,30 +99,36 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 檢查API金鑰
     const apiKey = document.getElementById('apiKeyInput').value;
+    console.log('[POPUP_SCRIPT] Checking API Key. Found:', apiKey ? 'Yes' : 'No');
     if (!apiKey) {
       alert('Please enter your OpenAI API Key.');
+      console.warn('[POPUP_SCRIPT] OpenAI API Key is missing.');
       return;
     }
     
     // 儲存API金鑰
     localStorage.setItem('openai_api_key', apiKey);
     
+    const messagePayload = {
+      action: 'startCapture',
+      options: {
+        teamId: selectedTeamId,
+        captureMode: captureMode
+      }
+    };
+    console.log('[POPUP_SCRIPT] Sending startCapture message to background script with payload:', messagePayload);
     chrome.runtime.sendMessage(
-      { 
-        action: 'startCapture', 
-        options: { 
-          teamId: selectedTeamId,
-          captureMode: captureMode
-        } 
-      },
+      messagePayload,
       function(response) {
-        if (response.success) {
+        console.log('[POPUP_SCRIPT] Received response from background script for startCapture:', response);
+        if (response && response.success) {
           currentState.isCapturing = true;
           currentState.activeTeamId = selectedTeamId;
           updateUIState();
+          console.log('[POPUP_SCRIPT] Capture started successfully, UI updated.');
         } else {
-          console.error('開始捕獲失敗:', response.error);
-          alert('Failed to start capture: ' + response.error);
+          console.error('開始捕獲失敗:', response ? response.error : 'No response or error field missing');
+          alert('Failed to start capture: ' + (response ? response.error : 'Unknown error'));
         }
       }
     );
