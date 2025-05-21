@@ -29,13 +29,42 @@ function ensureMessageArea() {
 
 // 頁面載入後執行的初始化函數
 document.addEventListener('DOMContentLoaded', function() {
+  console.log('[POPUP_SCRIPT] 頁面載入完成，初始化應用');
+  
+  // 立即從localStorage讀取團隊數據
+  try {
+    activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
+    console.log('[POPUP_SCRIPT] 已從localStorage載入團隊數據，團隊數量:', activeTeams.length);
+    if (activeTeams.length > 0) {
+      activeTeams.forEach((team, idx) => {
+        console.log(`[POPUP_SCRIPT] 團隊 ${idx+1}: ${team.name}, 轉錄數: ${team.transcripts ? team.transcripts.length : 0}`);
+      });
+    } else {
+      console.log('[POPUP_SCRIPT] 沒有找到團隊數據，將創建空陣列');
+      activeTeams = [];
+      // 創建一個測試團隊以便使用
+      if (confirm('沒有找到團隊數據，是否創建一個測試團隊?')) {
+        const newTeam = {
+          id: Date.now().toString(),
+          name: "測試團隊",
+          transcripts: []
+        };
+        activeTeams.push(newTeam);
+        localStorage.setItem('teams', JSON.stringify(activeTeams));
+        console.log('[POPUP_SCRIPT] 已創建測試團隊');
+      }
+    }
+  } catch (error) {
+    console.error('[POPUP_SCRIPT] 載入團隊數據出錯:', error);
+    activeTeams = [];
+  }
+  
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
   const teamSelect = document.getElementById('teamSelect');
   const statusDisplay = document.getElementById('status');
   const transcriptContainer = document.getElementById('transcriptContainer');
   
-  let activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
   let currentState = { isCapturing: false, activeTeamId: null };
   let transcriptChunks = [];
   
@@ -45,17 +74,55 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 載入隊伍選擇
   function loadTeamSelect() {
+    console.log('[POPUP_SCRIPT] Loading team select dropdown...');
+    
+    // 從localStorage獲取最新團隊數據
+    activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
+    console.log('[POPUP_SCRIPT] Teams loaded from localStorage:', activeTeams.length);
+    
+    // 清空下拉選單
     teamSelect.innerHTML = '';
+    
+    if (activeTeams.length === 0) {
+      // 如果沒有團隊，顯示提示選項
+      const option = document.createElement('option');
+      option.value = "";
+      option.textContent = "請先創建一個團隊";
+      option.disabled = true;
+      option.selected = true;
+      teamSelect.appendChild(option);
+      console.log('[POPUP_SCRIPT] No teams found, showing placeholder option');
+      return;
+    }
+    
+    // 添加每個團隊選項
     activeTeams.forEach(team => {
       const option = document.createElement('option');
       option.value = team.id;
       option.textContent = team.name;
       teamSelect.appendChild(option);
+      console.log(`[POPUP_SCRIPT] Added team option: ${team.name} (${team.id})`);
     });
     
     // 如果有活躍的團隊ID，則選擇它
     if (currentState.activeTeamId) {
+      const teamExists = activeTeams.some(team => team.id === currentState.activeTeamId);
+      if (teamExists) {
+        teamSelect.value = currentState.activeTeamId;
+        console.log(`[POPUP_SCRIPT] Selected active team: ${currentState.activeTeamId}`);
+      } else {
+        console.warn(`[POPUP_SCRIPT] Active team ID not found in teams list: ${currentState.activeTeamId}`);
+        if (activeTeams.length > 0) {
+          currentState.activeTeamId = activeTeams[0].id;
+          teamSelect.value = currentState.activeTeamId;
+          console.log(`[POPUP_SCRIPT] Defaulted to first team: ${currentState.activeTeamId}`);
+        }
+      }
+    } else if (activeTeams.length > 0) {
+      // 如果沒有活躍團隊但有團隊可選，默認選第一個
+      currentState.activeTeamId = activeTeams[0].id;
       teamSelect.value = currentState.activeTeamId;
+      console.log(`[POPUP_SCRIPT] No active team, defaulted to first team: ${currentState.activeTeamId}`);
     }
   }
   
@@ -109,11 +176,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // 儲存API金鑰
     localStorage.setItem('openai_api_key', apiKey);
     
+    // 獲取下載檔案設定
+    const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
+    console.log('[POPUP_SCRIPT] Download audio files setting:', downloadFiles);
+    
     const messagePayload = {
       action: 'startCapture',
       options: {
         teamId: selectedTeamId,
-        captureMode: captureMode
+        captureMode: captureMode,
+        downloadFiles: downloadFiles
       }
     };
     console.log('[POPUP_SCRIPT] Sending startCapture message to background script with payload:', messagePayload);
@@ -136,13 +208,55 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 停止捕獲按鈕點擊事件
   stopBtn.addEventListener('click', function() {
+    showPopupMessage("正在停止錄音...", "success", 2000);
+    
+    // 確保即使background.js未發送final chunk，我們也會存儲轉錄
+    const forceSaveTranscript = function() {
+      if (transcriptChunks.length > 0) {
+        console.log('[POPUP_SCRIPT] 強制保存轉錄記錄，轉錄塊數量:', transcriptChunks.length);
+        // 標記最後一個區塊為final
+        transcriptChunks[transcriptChunks.length - 1].isFinal = true;
+        // 保存轉錄
+        if (saveTranscriptToTeam()) {
+          console.log('[POPUP_SCRIPT] 成功保存轉錄記錄');
+          showPopupMessage("轉錄已保存到歷史記錄", "success", 3000);
+        } else {
+          console.error('[POPUP_SCRIPT] 保存轉錄記錄失敗');
+          showPopupMessage("保存轉錄失敗，請查看控制台", "error", 3000);
+        }
+      } else {
+        console.warn('[POPUP_SCRIPT] 沒有轉錄內容可保存');
+        showPopupMessage("無轉錄內容可保存", "error", 3000);
+      }
+    };
+    
     chrome.runtime.sendMessage({ action: 'stopCapture' }, function(response) {
-      if (response.success) {
+      console.log('[POPUP_SCRIPT] 停止錄音響應:', response);
+      
+      if (response && response.success) {
+        // 更新UI
         currentState.isCapturing = false;
         updateUIState();
+        
+        // 延遲後處理轉錄保存，確保所有音訊塊已收到
+        setTimeout(function() {
+          console.log('[POPUP_SCRIPT] 延遲保存轉錄，確保所有塊已經處理');
+          // 檢查是否有轉錄塊
+          if (transcriptChunks.length > 0) {
+            forceSaveTranscript();
+          } else {
+            console.warn('[POPUP_SCRIPT] 停止錄音後沒有轉錄塊');
+            showPopupMessage("未檢測到有效轉錄", "error", 3000);
+          }
+        }, 3000); // 等待3秒確保所有API回應都已處理
       } else {
-        console.error('停止捕獲失敗:', response.error);
-        alert('Failed to stop capture: ' + response.error);
+        console.error('[POPUP_SCRIPT] 停止捕獲失敗:', response ? response.error : '沒有回應');
+        alert('停止錄音失敗: ' + (response ? response.error : '未知錯誤'));
+        
+        // 即使停止失敗，也嘗試保存現有轉錄
+        if (transcriptChunks.length > 0) {
+          forceSaveTranscript();
+        }
       }
     });
   });
@@ -151,14 +265,24 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('addTeamBtn').addEventListener('click', function() {
     const teamName = prompt('Please enter the new team name:');
     if (teamName) {
+      // 獲取最新的團隊數據
+      activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
+      
       const newTeam = {
         id: Date.now().toString(),
         name: teamName,
         transcripts: []
       };
       
+      console.log('[POPUP_SCRIPT] Creating new team:', newTeam);
+      
       activeTeams.push(newTeam);
       localStorage.setItem('teams', JSON.stringify(activeTeams));
+      
+      // 確認團隊創建成功
+      console.log('[POPUP_SCRIPT] Team created. Total teams:', activeTeams.length);
+      console.log('[POPUP_SCRIPT] Teams in localStorage:', JSON.parse(localStorage.getItem('teams')));
+      
       loadTeamSelect();
       
       // 自動選擇新建的團隊
@@ -170,9 +294,14 @@ document.addEventListener('DOMContentLoaded', function() {
         function(response) {
           if (response.success) {
             currentState.activeTeamId = newTeam.id;
+            console.log('[POPUP_SCRIPT] Active team set to:', newTeam.id);
+          } else {
+            console.warn('[POPUP_SCRIPT] Failed to set active team:', response.error);
           }
         }
       );
+      
+      showPopupMessage(`已創建新團隊: ${teamName}`, "success");
     }
   });
   
@@ -230,6 +359,7 @@ document.addEventListener('DOMContentLoaded', function() {
   async function processAudioChunk(message) {
     try {
       console.log('處理音訊區塊:', message.timestamp);
+      console.log('是否為最終區塊:', message.isFinal ? 'Yes' : 'No');
       
       // 獲取API金鑰和端點
       const apiKey = document.getElementById('apiKeyInput').value;
@@ -265,9 +395,9 @@ document.addEventListener('DOMContentLoaded', function() {
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.webm');
       formData.append('model', 'whisper-1');
-      formData.append('language', 'zh');
+      //formData.append('language', 'zh');
       
-      // 調用Whisper API進行轉錄
+      // 調用API進行轉錄
       const response = await fetch(`${baseApiUrl}/audio/transcriptions`, {
         method: 'POST',
         headers: {
@@ -305,10 +435,11 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // 更新顯示
       displayTranscript();
-      statusDisplay.textContent = 'Recording...';
+      statusDisplay.textContent = message.isFinal ? 'Ready' : 'Recording...';
       
       // 如果是最後一個區塊，保存到團隊記錄
       if (message.isFinal) {
+        console.log('[POPUP_SCRIPT] 收到最終區塊，保存轉錄記錄到團隊');
         saveTranscriptToTeam();
       }
       
@@ -352,10 +483,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
       
       chunkElement.innerHTML = `
-        <div class="chunk-header">
+        <div class="chunk-line">
           <span class="chunk-time">${formattedTime}</span>
+          <span class="chunk-text">${chunk.text}</span>
         </div>
-        <div class="chunk-text">${chunk.text}</div>
       `;
       
       transcriptContainer.appendChild(chunkElement);
@@ -367,28 +498,81 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 保存轉錄到團隊記錄
   function saveTranscriptToTeam() {
-    const activeTeamId = currentState.activeTeamId;
-    if (!activeTeamId || transcriptChunks.length === 0) return;
-    
-    const fullText = transcriptChunks.map(chunk => chunk.text).join(' ');
-    
-    // 找到當前團隊
-    const teamIndex = activeTeams.findIndex(team => team.id === activeTeamId);
-    if (teamIndex === -1) return;
-    
-    // 添加新的轉錄記錄
-    const newTranscript = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      text: fullText,
-      chunks: transcriptChunks
-    };
-    
-    activeTeams[teamIndex].transcripts.push(newTranscript);
-    
-    // 保存更新後的團隊數據
-    localStorage.setItem('teams', JSON.stringify(activeTeams));
-    console.log('轉錄已保存到團隊記錄');
+    try {
+      const activeTeamId = currentState.activeTeamId;
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - 開始保存轉錄記錄');
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - activeTeamId:', activeTeamId);
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - currentState:', JSON.stringify(currentState));
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - transcriptChunks長度:', transcriptChunks.length);
+      
+      if (!activeTeamId) {
+        console.warn('[POPUP_SCRIPT] Cannot save transcript: no active team ID');
+        alert('無法保存轉錄：沒有選擇團隊！請先選擇或創建一個團隊。');
+        return false;
+      }
+      
+      if (transcriptChunks.length === 0) {
+        console.warn('[POPUP_SCRIPT] Cannot save transcript: empty chunks');
+        return false;
+      }
+      
+      const fullText = transcriptChunks.map(chunk => chunk.text).join(' ');
+      console.log('[POPUP_SCRIPT] Full transcript text:', fullText);
+      
+      // 獲取最新的團隊數據，避免覆蓋其他更改
+      const latestTeams = JSON.parse(localStorage.getItem('teams')) || [];
+      console.log('[POPUP_SCRIPT] 團隊數據從localStorage加載:', latestTeams.length > 0 ? '成功' : '空或失敗');
+      
+      // 找到當前團隊
+      const teamIndex = latestTeams.findIndex(team => team.id === activeTeamId);
+      console.log('[POPUP_SCRIPT] Team index for ID ' + activeTeamId + ':', teamIndex);
+      
+      if (teamIndex === -1) {
+        console.warn('[POPUP_SCRIPT] Team not found with ID:', activeTeamId);
+        alert(`無法找到ID為 ${activeTeamId} 的團隊，請重新選擇團隊。`);
+        return false;
+      }
+      
+      // 確保團隊有transcripts陣列
+      if (!latestTeams[teamIndex].transcripts) {
+        latestTeams[teamIndex].transcripts = [];
+      }
+      
+      // 準備轉錄數據的深拷貝
+      const transcriptChunksCopy = JSON.parse(JSON.stringify(transcriptChunks));
+      
+      // 添加新的轉錄記錄
+      const newTranscript = {
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        text: fullText,
+        chunks: transcriptChunksCopy
+      };
+      
+      latestTeams[teamIndex].transcripts.push(newTranscript);
+      
+      // 保存更新後的團隊數據
+      try {
+        localStorage.setItem('teams', JSON.stringify(latestTeams));
+        console.log('[POPUP_SCRIPT] 轉錄保存成功! 團隊:', latestTeams[teamIndex].name);
+        console.log('[POPUP_SCRIPT] 該團隊現有轉錄數:', latestTeams[teamIndex].transcripts.length);
+        
+        // 更新本地activeTeams變量以保持一致
+        activeTeams = latestTeams;
+        
+        // 顯示成功訊息
+        showPopupMessage("轉錄已保存到團隊記錄", "success", 2000);
+        return true;
+      } catch (error) {
+        console.error('[POPUP_SCRIPT] 保存到localStorage失敗:', error);
+        alert('保存轉錄記錄失敗: ' + error.message);
+        return false;
+      }
+    } catch (error) {
+      console.error('[POPUP_SCRIPT] saveTranscriptToTeam錯誤:', error);
+      alert('保存轉錄過程中發生錯誤: ' + error.message);
+      return false;
+    }
   }
   
   // 設置按鈕事件
@@ -422,10 +606,12 @@ function showPopupMessage(message, type = 'success', duration = 3000) {
 function loadSettings() {
   const savedApiKey = localStorage.getItem('openai_api_key') || '';
   const savedApiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
+  const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
   // const savedModel = localStorage.getItem('openai_model') || ''; // We'll populate models after testing
 
   document.getElementById('apiKeyInput').value = savedApiKey;
   document.getElementById('apiEndpointInput').value = savedApiEndpoint;
+  document.getElementById('downloadFilesCheckbox').checked = downloadFiles;
   // If there's a saved API key, try to load models
   if (savedApiKey && savedApiEndpoint) {
     testAPIConnection(false); // false to not show success message on initial load
@@ -522,6 +708,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
   const selectedModel = document.getElementById('modelSelect').value;
+  const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
 
   if (!apiKey) {
     showPopupMessage('API Key cannot be empty.', 'error');
@@ -551,7 +738,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
 
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
+  localStorage.setItem('download_audio_files', downloadFiles);
   
   showPopupMessage('Settings saved successfully!', 'success');
-  console.log('Settings saved:', { apiKey, apiEndpoint, model: localStorage.getItem('openai_model') });
+  console.log('Settings saved:', { apiKey, apiEndpoint, downloadFiles, model: localStorage.getItem('openai_model') });
 }); 

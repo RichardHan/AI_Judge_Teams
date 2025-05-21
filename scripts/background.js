@@ -5,7 +5,8 @@ let captureState = {
   activeTeamId: null,
   captureMode: null,
   startTime: null,
-  segmentNumber: 0  // Track segment number to help with file naming
+  segmentNumber: 0,  // Track segment number to help with file naming
+  downloadFiles: false // 控制是否下載音訊檔案
 };
 
 // 錄音相關
@@ -57,6 +58,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captureState.captureMode = message.options.captureMode;
         captureState.startTime = Date.now();
         captureState.segmentNumber = 0; // Reset segment counter
+        captureState.downloadFiles = message.options.downloadFiles || false; // 設置是否下載檔案
+        console.log(`[BACKGROUND_SCRIPT] Download files set to: ${captureState.downloadFiles}`);
         
         // Start the first segment capture - this will also set the recordingActiveTab value
         captureNewSegment();
@@ -230,6 +233,7 @@ function captureNewSegment() {
           reader.onloadend = () => {
             const base64data = reader.result.split(',')[1];
             console.log(`[BACKGROUND_SCRIPT] Sending ${isFinal ? 'final ' : ''}audioChunk (from onstop) to popup.`);
+            console.log(`[BACKGROUND_SCRIPT] isFinal flag set to: ${isFinal}`);
             chrome.runtime.sendMessage({
               action: 'audioChunk',
               audioBase64: base64data,
@@ -303,6 +307,13 @@ function stopCapturing() {
 // Helper function to save audio blob to a file
 function saveAudioBlobToFile(audioBlob, segmentType) {
   console.log(`[BACKGROUND_SCRIPT] saveAudioBlobToFile called. Current activeTeamId: ${captureState.activeTeamId}, segmentType: ${segmentType}`);
+  
+  // 檢查是否要下載檔案，如果設置為不下載則跳過
+  if (!captureState.downloadFiles) {
+    console.log('[BACKGROUND_SCRIPT] Download files is disabled. Skipping file save.');
+    return;
+  }
+  
   if (!captureState.activeTeamId) {
     console.warn('[BACKGROUND_SCRIPT] saveAudioBlobToFile: activeTeamId is NOT set. Aborting file save.');
     return;

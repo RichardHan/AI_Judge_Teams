@@ -13,6 +13,92 @@ document.addEventListener('DOMContentLoaded', function() {
   let activeTeamId = null;
   let activeTranscriptId = null;
   
+  // 加入調試信息，顯示當前localStorage中的teams數據
+  console.log('LocalStorage teams data:', activeTeams);
+  console.log('Teams count:', activeTeams.length);
+  if(activeTeams.length > 0) {
+    activeTeams.forEach((team, index) => {
+      console.log(`Team ${index+1}: ${team.name}, ID: ${team.id}`);
+      console.log(`  Transcripts count: ${team.transcripts ? team.transcripts.length : 0}`);
+    });
+  }
+  
+  // 添加測試按鈕到頁面上
+  const debugSection = document.createElement('div');
+  debugSection.className = 'debug-section';
+  debugSection.innerHTML = `
+    <h3>Debug Options</h3>
+    <button id="addTestDataBtn" class="btn btn-secondary">Add Test Transcript</button>
+    <button id="clearTeamsDataBtn" class="btn btn-danger">Clear All Data</button>
+    <div id="debugInfo" style="margin-top: 10px; font-size: 12px;"></div>
+  `;
+  document.querySelector('.container').appendChild(debugSection);
+  
+  // 添加測試數據按鈕事件
+  document.getElementById('addTestDataBtn').addEventListener('click', function() {
+    addTestTranscriptData();
+  });
+  
+  // 清除數據按鈕事件
+  document.getElementById('clearTeamsDataBtn').addEventListener('click', function() {
+    if (confirm('確定要清除所有團隊和轉錄數據嗎？此操作不可撤銷。')) {
+      localStorage.removeItem('teams');
+      activeTeams = [];
+      document.getElementById('debugInfo').textContent = '已清除所有數據。';
+      loadTeamsList();
+      clearTranscriptDetail();
+    }
+  });
+  
+  // 創建測試轉錄數據的函數
+  function addTestTranscriptData() {
+    // 如果沒有團隊，先創建一個
+    if (activeTeams.length === 0) {
+      activeTeams.push({
+        id: Date.now().toString(),
+        name: "測試團隊" + Math.floor(Math.random() * 100),
+        transcripts: []
+      });
+    }
+    
+    // 為第一個團隊添加一個轉錄記錄
+    const team = activeTeams[0];
+    const testChunks = [
+      {
+        timestamp: new Date().toISOString(),
+        text: "這是一段測試轉錄文本，用於測試歷史記錄功能是否正常工作。",
+        isFinal: false
+      },
+      {
+        timestamp: new Date(Date.now() + 10000).toISOString(),
+        text: "這是第二段轉錄文本，生成於十秒後。",
+        isFinal: false
+      },
+      {
+        timestamp: new Date(Date.now() + 20000).toISOString(),
+        text: "這是最後一段測試文本，作為最終段落。",
+        isFinal: true
+      }
+    ];
+    
+    const newTranscript = {
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      text: testChunks.map(chunk => chunk.text).join(' '),
+      chunks: testChunks
+    };
+    
+    team.transcripts.push(newTranscript);
+    
+    // 保存更新後的團隊數據
+    localStorage.setItem('teams', JSON.stringify(activeTeams));
+    
+    document.getElementById('debugInfo').textContent = `已添加測試轉錄到團隊: ${team.name}`;
+    
+    // 重新載入列表
+    loadTeamsList();
+  }
+  
   // 返回按鈕事件
   backBtn.addEventListener('click', function() {
     window.location.href = 'popup.html';
@@ -132,10 +218,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
         
         chunkElement.innerHTML = `
-          <div class="chunk-header">
+          <div class="chunk-line">
             <span class="chunk-time">${formattedTime}</span>
+            <span class="chunk-text">${chunk.text}</span>
           </div>
-          <div class="chunk-text">${chunk.text}</div>
         `;
         
         detailContent.appendChild(chunkElement);
