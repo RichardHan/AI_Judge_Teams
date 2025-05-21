@@ -211,6 +211,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     return true;
   });
+
+  // Add a debug function to help identify issues
+  function debugAudioProcessing(audioBlob, base64Size, timestamp) {
+    console.log(`[DEBUG] Processing audio chunk at ${timestamp}`);
+    console.log(`[DEBUG] Audio blob size: ${audioBlob.size} bytes`);
+    console.log(`[DEBUG] Base64 data size: ${base64Size} bytes`);
+    
+    // Check if audio is likely silent or very quiet
+    if (audioBlob.size < 1000) { // Arbitrary small size check
+      console.warn(`[DEBUG] Warning: Audio blob is very small (${audioBlob.size} bytes), might be silent`);
+      showPopupMessage("Warning: Audio capture seems to be very quiet or silent", "error", 5000);
+    }
+  }
+
   
   // 處理音訊區塊並轉錄
   async function processAudioChunk(message) {
@@ -223,6 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (!apiKey) {
         console.error('沒有設置 OpenAI API 金鑰');
+        showPopupMessage("Missing OpenAI API Key", "error", 3000);
         return;
       }
       
@@ -232,6 +247,19 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // 建立音訊檔案
       const audioBlob = base64ToBlob(message.audioBase64, 'audio/webm');
+      
+      // Debug audio processing
+      debugAudioProcessing(audioBlob, message.audioBase64.length, message.timestamp);
+      
+      if (audioBlob.size < 100) {
+        console.error('Audio blob is too small, likely contains no audio data');
+        showPopupMessage("Empty audio segment detected", "error", 3000);
+        return;
+      }
+      
+      // Update status display
+      statusDisplay.textContent = 'Transcribing...';
+      showPopupMessage("Transcribing audio...", "success", 2000);
       
       // 建立FormData
       const formData = new FormData();
@@ -252,10 +280,19 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('API請求失敗:', response.status, response.statusText);
         const errorText = await response.text();
         console.error('API錯誤詳情:', errorText);
+        showPopupMessage(`Transcription failed: ${response.status} ${response.statusText}`, "error", 5000);
+        statusDisplay.textContent = 'Ready';
         return;
       }
       
       const result = await response.json();
+      
+      // Check if transcription has content
+      if (!result.text || result.text.trim() === '') {
+        console.warn('Transcription returned empty text');
+        showPopupMessage("Empty transcription returned - segment might be silent", "error", 3000);
+        return;
+      }
       
       // 保存轉錄結果
       const transcriptChunk = {
@@ -268,6 +305,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // 更新顯示
       displayTranscript();
+      statusDisplay.textContent = 'Recording...';
       
       // 如果是最後一個區塊，保存到團隊記錄
       if (message.isFinal) {
@@ -276,6 +314,8 @@ document.addEventListener('DOMContentLoaded', function() {
       
     } catch (error) {
       console.error('處理音訊區塊失敗:', error);
+      showPopupMessage(`Audio processing error: ${error.message}`, "error", 5000);
+      statusDisplay.textContent = 'Error';
     }
   }
   

@@ -62,23 +62,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captureNewSegment();
         
         // Set interval to capture new segments every 10 seconds
-        if (transcribeInterval) clearInterval(transcribeInterval);
         transcribeInterval = setInterval(() => {
           if (captureState.isCapturing) {
             // Stop current recording if it exists
             if (mediaRecorder && mediaRecorder.state === 'recording') {
               console.log('[BACKGROUND_SCRIPT] Stopping current segment recording to start a new one');
               mediaRecorder.stop();
-              // Processing of this segment will happen in mediaRecorder.onstop handler
+              
+              // Start a new capture immediately to reduce delay
+              // This will create overlap rather than gaps
+              captureNewSegment();
+            } else {
+              // If there's no active recording for some reason, start one
+              captureNewSegment();
             }
-            
-            // Wait a small amount of time to ensure previous recorder has finished
-            setTimeout(() => {
-              // Only start a new capture if we're still recording
-              if (captureState.isCapturing) {
-                captureNewSegment();
-              }
-            }, 500);
           }
         }, 10000);
         
