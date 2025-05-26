@@ -8,7 +8,19 @@
 </head>
 <body>
   <div class="container">
-    <h1>Teams Meeting Assistant</h1>
+    <header class="main-header">
+      <div class="header-content">
+        <h1>Teams Meeting Assistant</h1>
+        <div class="status-bar">
+          <span>Status: </span>
+          <span id="status" class="status-text">Ready</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="settingsBtn" class="btn btn-icon">⚙️</button>
+        <button id="showHistoryBtn" class="btn btn-icon">📋</button>
+      </div>
+    </header>
     
     <div class="control-panel">
       <div class="team-selector">
@@ -20,17 +32,18 @@
       
       <div class="buttons">
         <button id="startBtn" class="btn btn-primary">Start Recording</button>
-        <button id="stopBtn" class="btn btn-danger" disabled>Stop Recording</button>
-      </div>
-      
-      <div class="status-bar">
-        <span>Status: </span>
-        <span id="status" class="status-text">Ready</span>
-      </div>
-      
-      <div class="toolbar">
-        <button id="settingsBtn" class="btn btn-icon">⚙️</button>
-        <button id="showHistoryBtn" class="btn btn-icon">📋</button>
+        <div class="recording-controls">
+          <button id="stopBtn" class="btn btn-danger" disabled>Stop Recording</button>
+          <div class="language-selector">
+            <label for="languageSelect">Language:</label>
+            <select id="languageSelect" class="select-field language-select">
+              <option value="">Auto</option>
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+              <option value="ja">日本語</option>
+            </select>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -46,9 +59,23 @@
                placeholder="sk-..." autocomplete="off">
       </div>
       <div class="setting-group">
-        <label for="modelSelect">Select Model:</label>
+        <label for="modelSelect">AI Judge Summary Model (Text):</label>
         <select id="modelSelect" class="input-field">
           <option value="">Please test connection first</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label for="screenshotModelSelect">Screenshot Summary Model (Image to Text):</label>
+        <select id="screenshotModelSelect" class="input-field">
+          <option value="">Please test connection first</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label for="screenshotDetailSelect">Screenshot Analysis Detail:</label>
+        <select id="screenshotDetailSelect" class="input-field">
+          <option value="low">Low - Brief summary</option>
+          <option value="medium" selected>Medium - Concise summary (Default)</option>
+          <option value="high">High - Detailed analysis</option>
         </select>
       </div>
       <div class="setting-group">
@@ -57,6 +84,34 @@
         </label>
         <div class="setting-description">若啟用，每10秒的錄音將保存到Downloads/audio_capture資料夾</div>
       </div>
+      
+      <div class="setting-group">
+        <h3>AI Judge Settings</h3>
+        <div class="judge-settings">
+          <div class="judge-item">
+            <label>
+              <input type="checkbox" id="enableJudge1" checked> 
+              Judge 1
+            </label>
+            <textarea id="judge1Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
+          </div>
+          <div class="judge-item">
+            <label>
+              <input type="checkbox" id="enableJudge2" checked> 
+              Judge 2 
+            </label>
+            <textarea id="judge2Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
+          </div>
+          <div class="judge-item">
+            <label>
+              <input type="checkbox" id="enableJudge3" checked> 
+              Judge 3
+            </label>
+            <textarea id="judge3Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
+          </div>
+        </div>
+      </div>
+      
       <div class="setting-group">
         <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
         <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>

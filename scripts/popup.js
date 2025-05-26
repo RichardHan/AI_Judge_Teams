@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   let currentState = { isCapturing: false, activeTeamId: null };
   let transcriptChunks = [];
+  let transcriptSaved = false; // 防止重複保存轉錄記錄
   
   // 載入設定
   const captureMode = localStorage.getItem('captureMode') || 'segmented';
@@ -128,8 +129,28 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 獲取當前捕獲狀態
   chrome.runtime.sendMessage({ action: 'getCaptureState' }, function(response) {
-    currentState = response;
+    console.log('[POPUP_SCRIPT] Initial getCaptureState response:', JSON.stringify(response));
+    if (response) {
+        currentState.isCapturing = response.isCapturing;
+        currentState.activeTeamId = response.activeTeamId;
+        
+        // 恢復轉錄內容
+        if (response.transcriptChunks && response.transcriptChunks.length > 0) {
+          transcriptChunks = [...response.transcriptChunks];
+          transcriptSaved = false; // 重置保存狀態，因為這是恢復的內容
+          console.log('[POPUP_SCRIPT] Restored transcript chunks from background:', transcriptChunks.length);
+          displayTranscript();
+        }
+    } else {
+        console.warn('[POPUP_SCRIPT] Initial getCaptureState got no response or undefined response. currentState remains default.');
+        // currentState remains { isCapturing: false, activeTeamId: null }
+    }
     updateUIState();
+    // Potentially re-load or re-evaluate team select if state indicates capture but no teamID
+    // or if team select needs to reflect the activeTeamId from background.
+    // Calling loadTeamSelect again here might be useful if initial loadTeamSelect ran before this callback.
+    // However, loadTeamSelect is also called just before this. Consider the timing.
+    // For now, ensure updateUIState correctly reflects the fetched state.
   });
   
   // 切換團隊選擇功能
@@ -154,6 +175,7 @@ document.addEventListener('DOMContentLoaded', function() {
   startBtn.addEventListener('click', function() {
     console.log('[POPUP_SCRIPT] Start Recording button clicked.');
     const selectedTeamId = teamSelect.value;
+    console.log('[POPUP_SCRIPT] StartBtn: selectedTeamId from teamSelect.value:', selectedTeamId);
     if (!selectedTeamId) {
       alert('Please select or create a team first.');
       console.warn('[POPUP_SCRIPT] No team selected.');
@@ -163,6 +185,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // 清空轉錄文本顯示
     transcriptContainer.innerHTML = '';
     transcriptChunks = [];
+    transcriptSaved = false; // 重置保存狀態
+    
+    // 通知 background script 清除轉錄記錄
+    chrome.runtime.sendMessage({ action: 'clearTranscripts' });
     
     // 檢查API金鑰
     const apiKey = document.getElementById('apiKeyInput').value;
@@ -197,7 +223,7 @@ document.addEventListener('DOMContentLoaded', function() {
           currentState.isCapturing = true;
           currentState.activeTeamId = selectedTeamId;
           updateUIState();
-          console.log('[POPUP_SCRIPT] Capture started successfully, UI updated.');
+          console.log('[POPUP_SCRIPT] StartBtn Callback: Capture started. currentState:', JSON.stringify(currentState), 'selectedTeamId was:', selectedTeamId);
         } else {
           console.error('開始捕獲失敗:', response ? response.error : 'No response or error field missing');
           alert('Failed to start capture: ' + (response ? response.error : 'Unknown error'));
@@ -208,26 +234,36 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 停止捕獲按鈕點擊事件
   stopBtn.addEventListener('click', function() {
+    console.log('[POPUP_SCRIPT] StopBtn: Clicked. Current currentState:', JSON.stringify(currentState));
     showPopupMessage("正在停止錄音...", "success", 2000);
-    
+    const teamIdForSaving = currentState.activeTeamId; // Capture ID immediately
+    console.log('[POPUP_SCRIPT] StopBtn: teamIdForSaving is:', teamIdForSaving);
+    const showHistoryBtn = document.getElementById('showHistoryBtn');
+    showHistoryBtn.disabled = true; // Disable history button
+
     // 確保即使background.js未發送final chunk，我們也會存儲轉錄
-    const forceSaveTranscript = function() {
-      if (transcriptChunks.length > 0) {
+    const forceSaveTranscript = function(currentTeamId) { // Pass teamId
+      if (transcriptChunks.length > 0 && !transcriptSaved) {
         console.log('[POPUP_SCRIPT] 強制保存轉錄記錄，轉錄塊數量:', transcriptChunks.length);
         // 標記最後一個區塊為final
         transcriptChunks[transcriptChunks.length - 1].isFinal = true;
         // 保存轉錄
-        if (saveTranscriptToTeam()) {
+        if (saveTranscriptToTeam(currentTeamId)) { // Pass teamId to save function
+          transcriptSaved = true; // 標記已保存
           console.log('[POPUP_SCRIPT] 成功保存轉錄記錄');
           showPopupMessage("轉錄已保存到歷史記錄", "success", 3000);
         } else {
           console.error('[POPUP_SCRIPT] 保存轉錄記錄失敗');
           showPopupMessage("保存轉錄失敗，請查看控制台", "error", 3000);
         }
+      } else if (transcriptSaved) {
+        console.log('[POPUP_SCRIPT] 轉錄已經保存過了，跳過重複保存');
+        showPopupMessage("轉錄已經保存", "success", 2000);
       } else {
         console.warn('[POPUP_SCRIPT] 沒有轉錄內容可保存');
         showPopupMessage("無轉錄內容可保存", "error", 3000);
       }
+      showHistoryBtn.disabled = false; // Re-enable history button
     };
     
     chrome.runtime.sendMessage({ action: 'stopCapture' }, function(response) {
@@ -243,10 +279,20 @@ document.addEventListener('DOMContentLoaded', function() {
           console.log('[POPUP_SCRIPT] 延遲保存轉錄，確保所有塊已經處理');
           // 檢查是否有轉錄塊
           if (transcriptChunks.length > 0) {
-            forceSaveTranscript();
+            forceSaveTranscript(teamIdForSaving); // Pass captured ID
+            
+            // 保存完成後清除轉錄內容（只有在停止錄音時才清除）
+            setTimeout(function() {
+              transcriptChunks = [];
+              transcriptContainer.innerHTML = '';
+              transcriptSaved = false; // 重置保存狀態
+              chrome.runtime.sendMessage({ action: 'clearTranscripts' });
+              console.log('[POPUP_SCRIPT] Cleared transcript content after saving');
+            }, 1000);
           } else {
             console.warn('[POPUP_SCRIPT] 停止錄音後沒有轉錄塊');
             showPopupMessage("未檢測到有效轉錄", "error", 3000);
+            showHistoryBtn.disabled = false; // Re-enable if no chunks
           }
         }, 3000); // 等待3秒確保所有API回應都已處理
       } else {
@@ -255,7 +301,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 即使停止失敗，也嘗試保存現有轉錄
         if (transcriptChunks.length > 0) {
-          forceSaveTranscript();
+          forceSaveTranscript(teamIdForSaving); // Pass captured ID
+        } else {
+          showHistoryBtn.disabled = false; // Also re-enable if stop failed and no chunks
         }
       }
     });
@@ -324,17 +372,43 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 接收背景腳本的訊息
   chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-    console.log('Popup received message:', message);
+    console.log('Popup received message:', message, 'Sender:', sender);
     
     switch (message.action) {
       case 'captureStateChanged':
-        currentState = message.state;
+        console.log('[POPUP_SCRIPT] Received captureStateChanged. Message state:', JSON.stringify(message.state));
+        // Ensure we update both isCapturing and activeTeamId if provided
+        currentState.isCapturing = message.state.isCapturing;
+        if (message.state.hasOwnProperty('activeTeamId')) {
+            currentState.activeTeamId = message.state.activeTeamId;
+            console.log('[POPUP_SCRIPT] captureStateChanged: Updated currentState.activeTeamId to:', currentState.activeTeamId);
+        } else if (!message.state.isCapturing) {
+            // If capturing stopped and no activeTeamId was sent, we might want to preserve the existing one
+            // or explicitly nullify it if that's the design. For now, let's log this case.
+            console.warn('[POPUP_SCRIPT] captureStateChanged: isCapturing is false, but no activeTeamId received in message.state. currentState.activeTeamId remains:', currentState.activeTeamId);
+        }
         updateUIState();
         break;
         
       case 'audioChunk':
         // 處理收到的音訊區塊
         processAudioChunk(message);
+        break;
+        
+      case 'transcriptUpdated':
+        // 接收來自 background script 的轉錄更新
+        console.log('[POPUP_SCRIPT] Received transcriptUpdated from background:', message.transcriptChunks.length);
+        transcriptChunks = [...message.transcriptChunks];
+        displayTranscript();
+        break;
+        
+      case 'screenshotAnalyzed':
+        // 接收來自 background script 的截圖分析結果
+        console.log('[POPUP_SCRIPT] Received screenshotAnalyzed from background:', message.data);
+        // 截圖分析結果已經被 background script 添加到 transcriptChunks 中
+        // 這裡只需要更新顯示
+        displayTranscript();
+        showPopupMessage("Screenshot analyzed and added to transcript", "success", 2000);
         break;
     }
     
@@ -395,7 +469,15 @@ document.addEventListener('DOMContentLoaded', function() {
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.webm');
       formData.append('model', 'whisper-1');
-      //formData.append('language', 'zh');
+      
+      // 添加語言參數（如果用戶有選擇的話）
+      const selectedLanguage = document.getElementById('languageSelect').value;
+      if (selectedLanguage) {
+        formData.append('language', selectedLanguage);
+        console.log(`[POPUP_SCRIPT] Using language: ${selectedLanguage}`);
+      } else {
+        console.log('[POPUP_SCRIPT] Using auto-detect language');
+      }
       
       // 調用API進行轉錄
       const response = await fetch(`${baseApiUrl}/audio/transcriptions`, {
@@ -433,14 +515,23 @@ document.addEventListener('DOMContentLoaded', function() {
       
       transcriptChunks.push(transcriptChunk);
       
+      // 通知 background script 保存轉錄片段
+      chrome.runtime.sendMessage({
+        action: 'transcriptComplete',
+        transcript: transcriptChunk
+      });
+      
       // 更新顯示
       displayTranscript();
       statusDisplay.textContent = message.isFinal ? 'Ready' : 'Recording...';
       
       // 如果是最後一個區塊，保存到團隊記錄
-      if (message.isFinal) {
+      if (message.isFinal && !transcriptSaved) {
         console.log('[POPUP_SCRIPT] 收到最終區塊，保存轉錄記錄到團隊');
-        saveTranscriptToTeam();
+        if (saveTranscriptToTeam(currentState.activeTeamId)) {
+          transcriptSaved = true; // 標記已保存
+          console.log('[POPUP_SCRIPT] 轉錄已保存，設置 transcriptSaved = true');
+        }
       }
       
     } catch (error) {
@@ -474,40 +565,59 @@ document.addEventListener('DOMContentLoaded', function() {
   function displayTranscript() {
     transcriptContainer.innerHTML = '';
     
-    transcriptChunks.forEach((chunk, index) => {
+    // 反轉數組順序，讓最新的轉錄顯示在最上面
+    const reversedChunks = [...transcriptChunks].reverse();
+    
+    reversedChunks.forEach((chunk, index) => {
       const chunkElement = document.createElement('div');
-      chunkElement.className = 'transcript-chunk';
+      
+      // Apply 'transcript-chunk' to all, removing specific 'screenshot-chunk' styling differentiation
+      chunkElement.className = 'transcript-chunk'; 
+      
+      // 為最新的轉錄項目添加特殊樣式
+      if (index === 0) {
+        chunkElement.classList.add('latest-transcript');
+      }
       
       // 格式化時間戳
       const date = new Date(chunk.timestamp);
       const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
       
-      chunkElement.innerHTML = `
-        <div class="chunk-line">
-          <span class="chunk-time">${formattedTime}</span>
-          <span class="chunk-text">${chunk.text}</span>
-        </div>
-      `;
+      // 根據類型顯示不同的內容
+      if (chunk.type === 'screenshot') {
+        chunkElement.innerHTML = `
+          <div class="chunk-line">
+            <span class="chunk-time">${formattedTime}</span>
+            <span class="chunk-type">📸</span>
+            <span class="chunk-text">${chunk.analysis}</span>
+          </div>
+        `;
+      } else {
+        chunkElement.innerHTML = `
+          <div class="chunk-line">
+            <span class="chunk-time">${formattedTime}</span>
+            <span class="chunk-text">${chunk.text || chunk.analysis}</span>
+          </div>
+        `;
+      }
       
       transcriptContainer.appendChild(chunkElement);
     });
     
-    // 自動滾動到底部
-    transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+    // 自動滾動到頂部，讓用戶看到最新內容
+    transcriptContainer.scrollTop = 0;
   }
   
   // 保存轉錄到團隊記錄
-  function saveTranscriptToTeam() {
+  function saveTranscriptToTeam(teamIdToSave) {
     try {
-      const activeTeamId = currentState.activeTeamId;
       console.log('[POPUP_SCRIPT] saveTranscriptToTeam - 開始保存轉錄記錄');
-      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - activeTeamId:', activeTeamId);
-      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - currentState:', JSON.stringify(currentState));
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeam - teamIdToSave:', teamIdToSave);
       console.log('[POPUP_SCRIPT] saveTranscriptToTeam - transcriptChunks長度:', transcriptChunks.length);
       
-      if (!activeTeamId) {
-        console.warn('[POPUP_SCRIPT] Cannot save transcript: no active team ID');
-        alert('無法保存轉錄：沒有選擇團隊！請先選擇或創建一個團隊。');
+      if (!teamIdToSave) {
+        console.warn('[POPUP_SCRIPT] Cannot save transcript: no team ID provided for saving');
+        alert('無法保存轉錄：沒有提供團隊ID進行保存！');
         return false;
       }
       
@@ -516,7 +626,12 @@ document.addEventListener('DOMContentLoaded', function() {
         return false;
       }
       
-      const fullText = transcriptChunks.map(chunk => chunk.text).join(' ');
+      const fullText = transcriptChunks.map(chunk => {
+        if (chunk.type === 'screenshot') {
+          return `[📸 ${chunk.analysis}]`;
+        }
+        return chunk.text || chunk.analysis || '';
+      }).join(' ');
       console.log('[POPUP_SCRIPT] Full transcript text:', fullText);
       
       // 獲取最新的團隊數據，避免覆蓋其他更改
@@ -524,12 +639,12 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('[POPUP_SCRIPT] 團隊數據從localStorage加載:', latestTeams.length > 0 ? '成功' : '空或失敗');
       
       // 找到當前團隊
-      const teamIndex = latestTeams.findIndex(team => team.id === activeTeamId);
-      console.log('[POPUP_SCRIPT] Team index for ID ' + activeTeamId + ':', teamIndex);
+      const teamIndex = latestTeams.findIndex(team => team.id === teamIdToSave);
+      console.log('[POPUP_SCRIPT] Team index for ID ' + teamIdToSave + ':', teamIndex);
       
       if (teamIndex === -1) {
-        console.warn('[POPUP_SCRIPT] Team not found with ID:', activeTeamId);
-        alert(`無法找到ID為 ${activeTeamId} 的團隊，請重新選擇團隊。`);
+        console.warn('[POPUP_SCRIPT] Team not found with ID:', teamIdToSave);
+        alert(`無法找到ID為 ${teamIdToSave} 的團隊，請重新選擇團隊。`);
         return false;
       }
       
@@ -585,6 +700,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.location.href = 'history.html';
   });
   
+  // 語言選擇器事件監聽器
+  document.getElementById('languageSelect').addEventListener('change', function() {
+    const selectedLanguage = this.value;
+    localStorage.setItem('transcription_language', selectedLanguage);
+    console.log('[POPUP_SCRIPT] Language preference saved:', selectedLanguage || 'Auto');
+    showPopupMessage(`Language set to: ${selectedLanguage || 'Auto-detect'}`, "success", 2000);
+  });
+  
   // 初始載入團隊選擇
   loadTeamSelect();
 });
@@ -602,16 +725,84 @@ function showPopupMessage(message, type = 'success', duration = 3000) {
   }, duration);
 }
 
+// Default AI Judge prompts
+const DEFAULT_JUDGE_PROMPTS = {
+  judge1: `You are Judge 1, a business-focused evaluator with expertise in strategic thinking and scaling technology solutions globally. You value innovation that creates real market impact.
+ 
+ Your Focus:
+ - Business potential and scalability
+ - Customer problem-solving effectiveness  
+ - Market differentiation opportunity
+ - Long-term viability
+ 
+ Scoring (1-100):
+ - Practicality (30%): Can this be implemented and maintained in real operations?
+ - Technical Implementation (30%): Is the solution well-architected and innovative?
+ - Business Value & Impact (40%): What's the potential ROI and market impact?
+ 
+ Evaluation Style: Challenge teams on business model, market strategy, and global scaling potential.`,
+ 
+  judge2: `You are Judge 2, a technical expert with deep engineering experience. You focus on code quality, system architecture, and engineering excellence.
+ 
+ Your Focus:
+ - Technical depth and implementation quality
+ - Code architecture and best practices
+ - Innovation in technical approach
+ - Production readiness
+ 
+ Scoring (1-100):
+ - Practicality (30%): Is this technically feasible for production deployment?
+ - Technical Implementation (30%): Code quality, security, and scalability considerations
+ - Business Value & Impact (40%): Development efficiency and operational benefits
+ 
+ Evaluation Style: Deep dive into technical architecture, performance, and engineering fundamentals.`,
+ 
+  judge3: `You are Judge 3, a product strategist with experience across development, sales, and marketing. You focus on user experience and platform integration.
+ 
+ Your Focus:
+ - Product-market fit
+ - User experience and usability
+ - Platform integration potential
+ - Customer-centric design
+ 
+ Scoring (1-100):
+ - Practicality (30%): How well does this integrate with existing systems and workflows?
+ - Technical Implementation (30%): Clean design, modularity, and forward-thinking architecture
+ - Business Value & Impact (40%): Customer success potential and ecosystem value
+ 
+ Evaluation Style: Focus on customer personas, use cases, and platform ecosystem benefits.`
+ };
+
 // Function to load saved settings
 function loadSettings() {
   const savedApiKey = localStorage.getItem('openai_api_key') || '';
   const savedApiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
   const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
-  // const savedModel = localStorage.getItem('openai_model') || ''; // We'll populate models after testing
+  const savedLanguage = localStorage.getItem('transcription_language') || '';
+  const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
+  
+  // Load AI Judge settings
+  const enableJudge1 = localStorage.getItem('enable_judge1_judge') !== 'false';
+  const enableJudge2 = localStorage.getItem('enable_judge2_judge') !== 'false';
+  const enableJudge3 = localStorage.getItem('enable_judge3_judge') !== 'false';
+  const judge1Prompt = localStorage.getItem('judge1_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge1;
+  const judge2Prompt = localStorage.getItem('judge2_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge2;
+  const judge3Prompt = localStorage.getItem('judge3_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge3;
 
   document.getElementById('apiKeyInput').value = savedApiKey;
   document.getElementById('apiEndpointInput').value = savedApiEndpoint;
   document.getElementById('downloadFilesCheckbox').checked = downloadFiles;
+  document.getElementById('languageSelect').value = savedLanguage;
+  document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
+  
+  // Set AI Judge settings
+  document.getElementById('enableJudge1').checked = enableJudge1;
+  document.getElementById('enableJudge2').checked = enableJudge2;
+  document.getElementById('enableJudge3').checked = enableJudge3;
+  document.getElementById('judge1Prompt').value = judge1Prompt;
+  document.getElementById('judge2Prompt').value = judge2Prompt;
+  document.getElementById('judge3Prompt').value = judge3Prompt;
+  
   // If there's a saved API key, try to load models
   if (savedApiKey && savedApiEndpoint) {
     testAPIConnection(false); // false to not show success message on initial load
@@ -623,6 +814,7 @@ async function testAPIConnection(showMessage = true) {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const apiEndpointInput = document.getElementById('apiEndpointInput');
   const modelSelect = document.getElementById('modelSelect');
+  const screenshotModelSelect = document.getElementById('screenshotModelSelect');
   
   const apiKey = apiKeyInput.value.trim();
   const apiEndpoint = apiEndpointInput.value.trim() || 'https://api.openai.com/v1'; // Default if empty
@@ -634,7 +826,9 @@ async function testAPIConnection(showMessage = true) {
   }
   
   modelSelect.innerHTML = '<option value="">Testing connection...</option>';
+  screenshotModelSelect.innerHTML = '<option value="">Testing connection...</option>';
   modelSelect.disabled = true;
+  screenshotModelSelect.disabled = true;
   
   try {
     const response = await fetch(`${apiEndpoint}/models`, {
@@ -653,6 +847,7 @@ async function testAPIConnection(showMessage = true) {
     const models = data.data || []; // Models are in the 'data' array
     
     modelSelect.innerHTML = ''; // Clear previous options
+    screenshotModelSelect.innerHTML = ''; // Clear previous options
     
     if (models.length > 0) {
       // Filter for gpt models if desired, or list all
@@ -668,25 +863,64 @@ async function testAPIConnection(showMessage = true) {
           return a.id.localeCompare(b.id);
         });
 
+      // Filter models for screenshot analysis (vision models)
+      const visionModels = filteredModels.filter(model => 
+        model.id.includes('vision') || 
+        model.id.includes('gpt-4o') || 
+        model.id.includes('gpt-4-turbo') ||
+        model.id.startsWith('gpt-4')
+      );
+
       if (filteredModels.length === 0) {
         modelSelect.innerHTML = '<option value="">No compatible models found.</option>';
+        screenshotModelSelect.innerHTML = '<option value="">No compatible models found.</option>';
         if (showMessage) showPopupMessage('Connection successful, but no compatible models found.', 'error');
       } else {
+        // Populate AI Judge model selector (all models)
         filteredModels.forEach(model => {
           const option = document.createElement('option');
           option.value = model.id;
           option.textContent = model.id;
           modelSelect.appendChild(option);
         });
-        // Try to select previously saved model
+        
+        // Populate Screenshot model selector (vision models only)
+        if (visionModels.length > 0) {
+          visionModels.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.id;
+            screenshotModelSelect.appendChild(option);
+          });
+        } else {
+          // If no vision models found, add all models but with a note
+          filteredModels.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.id + (model.id.includes('gpt-4') ? '' : ' (may not support images)');
+            screenshotModelSelect.appendChild(option);
+          });
+        }
+        
+        // Try to select previously saved models
         const savedModel = localStorage.getItem('openai_model');
+        const savedScreenshotModel = localStorage.getItem('openai_screenshot_model');
+        
         if (savedModel && modelSelect.querySelector(`option[value="${savedModel}"]`)) {
             modelSelect.value = savedModel;
         }
+        if (savedScreenshotModel && screenshotModelSelect.querySelector(`option[value="${savedScreenshotModel}"]`)) {
+            screenshotModelSelect.value = savedScreenshotModel;
+        } else if (visionModels.length > 0) {
+            // Default to first vision model for screenshots
+            screenshotModelSelect.value = visionModels[0].id;
+        }
+        
         if (showMessage) showPopupMessage('Connection successful! Models loaded.', 'success');
       }
     } else {
       modelSelect.innerHTML = '<option value="">No models found.</option>';
+      screenshotModelSelect.innerHTML = '<option value="">No models found.</option>';
       if (showMessage) showPopupMessage('Connection successful, but no models returned.', 'error');
     }
     return true;
@@ -697,6 +931,7 @@ async function testAPIConnection(showMessage = true) {
     return false;
   } finally {
     modelSelect.disabled = false;
+    screenshotModelSelect.disabled = false;
   }
 }
 
@@ -708,7 +943,17 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
   const selectedModel = document.getElementById('modelSelect').value;
+  const selectedScreenshotModel = document.getElementById('screenshotModelSelect').value;
+  const screenshotDetailLevel = document.getElementById('screenshotDetailSelect').value;
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
+  
+  // Get AI Judge settings
+  const enableJudge1 = document.getElementById('enableJudge1').checked;
+  const enableJudge2 = document.getElementById('enableJudge2').checked;
+  const enableJudge3 = document.getElementById('enableJudge3').checked;
+  const judge1Prompt = document.getElementById('judge1Prompt').value.trim();
+  const judge2Prompt = document.getElementById('judge2Prompt').value.trim();
+  const judge3Prompt = document.getElementById('judge3Prompt').value.trim();
 
   if (!apiKey) {
     showPopupMessage('API Key cannot be empty.', 'error');
@@ -738,8 +983,25 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
 
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
-  localStorage.setItem('download_audio_files', downloadFiles);
+  localStorage.setItem('openai_screenshot_model', selectedScreenshotModel);
+  localStorage.setItem('screenshot_detail_level', screenshotDetailLevel);
+  localStorage.setItem('download_audio_files', downloadFiles.toString());
+  localStorage.setItem('transcription_language', document.getElementById('languageSelect').value);
+  
+  // Save AI Judge settings
+  localStorage.setItem('enable_judge1_judge', enableJudge1);
+  localStorage.setItem('enable_judge2_judge', enableJudge2);
+  localStorage.setItem('enable_judge3_judge', enableJudge3);
+  localStorage.setItem('judge1_judge_prompt', judge1Prompt || DEFAULT_JUDGE_PROMPTS.judge1);
+  localStorage.setItem('judge2_judge_prompt', judge2Prompt || DEFAULT_JUDGE_PROMPTS.judge2);
+  localStorage.setItem('judge3_judge_prompt', judge3Prompt || DEFAULT_JUDGE_PROMPTS.judge3);
   
   showPopupMessage('Settings saved successfully!', 'success');
-  console.log('Settings saved:', { apiKey, apiEndpoint, downloadFiles, model: localStorage.getItem('openai_model') });
+  console.log('Settings saved:', { 
+    apiKey, 
+    apiEndpoint, 
+    downloadFiles, 
+    model: localStorage.getItem('openai_model'),
+    aiJudges: { enableJudge1, enableJudge2, enableJudge3 }
+  });
 }); 
