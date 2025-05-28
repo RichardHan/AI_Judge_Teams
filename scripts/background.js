@@ -73,6 +73,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Set interval to capture new segments every 10 seconds
         transcribeInterval = setInterval(() => {
           if (captureState.isCapturing) {
+            // 检查扩展是否仍然有效
+            if (!chrome.tabCapture || typeof chrome.tabCapture.capture !== 'function') {
+              console.error('[BACKGROUND_SCRIPT] Extension appears to be disabled during recording. Stopping audio capture.');
+              chrome.runtime.sendMessage({
+                action: 'extensionDisabled',
+                error: 'Extension became disabled during recording. Audio transcription stopped.'
+              });
+              // 清除音频相关的间隔，但保留截图功能
+              if (transcribeInterval) {
+                clearInterval(transcribeInterval);
+                transcribeInterval = null;
+              }
+              return;
+            }
+            
             // Stop current recording if it exists
             if (mediaRecorder && mediaRecorder.state === 'recording') {
               console.log('[BACKGROUND_SCRIPT] Stopping current segment recording to start a new one');
@@ -178,6 +193,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function captureNewSegment() {
   console.log('[BACKGROUND_SCRIPT] Starting new segment capture');
   
+  // 检查扩展是否具有必要的权限和功能
+  if (!chrome.tabCapture || typeof chrome.tabCapture.capture !== 'function') {
+    console.error('[BACKGROUND_SCRIPT] Extension appears to be disabled or tabCapture API is not available');
+    // 通知用户扩展可能已被禁用
+    chrome.runtime.sendMessage({
+      action: 'extensionDisabled',
+      error: 'Chrome extension appears to be disabled. Audio transcription will not work.'
+    });
+    return;
+  }
+  
   // First check if we're still on the tab we want to record
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
     if (tabs.length === 0) {
@@ -210,6 +236,11 @@ function captureNewSegment() {
     chrome.tabCapture.capture({ audio: true, video: false }, stream => {
       if (!stream) {
         console.error('[BACKGROUND_SCRIPT] Failed to capture tab audio for new segment');
+        // 通知用户音频捕获失败
+        chrome.runtime.sendMessage({
+          action: 'audioCaptureError',
+          error: 'Failed to capture audio. Please check if the extension is enabled and has proper permissions.'
+        });
         return;
       }
       console.log('[BACKGROUND_SCRIPT] Tab capture successful for new segment, stream obtained.');

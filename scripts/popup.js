@@ -27,9 +27,44 @@ function ensureMessageArea() {
   return msgArea;
 }
 
+// 检查扩展能力并在界面上显示状态
+function checkExtensionCapabilities() {
+  console.log('[POPUP_SCRIPT] Checking extension capabilities...');
+  
+  const statusDisplay = document.getElementById('status');
+  if (!statusDisplay) return;
+  
+  // 检查音频捕获能力
+  const hasAudioCapture = chrome.tabCapture && typeof chrome.tabCapture.capture === 'function';
+  
+  // 检查截图能力
+  const hasScreenCapture = chrome.tabs && typeof chrome.tabs.captureVisibleTab === 'function';
+  
+  if (hasAudioCapture && hasScreenCapture) {
+    console.log('[POPUP_SCRIPT] All capabilities available');
+    showPopupMessage("✅ Extension fully functional", "success", 3000);
+  } else if (!hasAudioCapture && hasScreenCapture) {
+    console.warn('[POPUP_SCRIPT] Audio capture not available, screenshots only');
+    showPopupMessage("⚠️ Audio transcription unavailable - screenshots only", "error", 5000);
+    statusDisplay.textContent = 'Limited Mode';
+    statusDisplay.style.color = 'orange';
+  } else if (hasAudioCapture && !hasScreenCapture) {
+    console.warn('[POPUP_SCRIPT] Screenshot capture not available, audio only');
+    showPopupMessage("⚠️ Screenshots unavailable - audio only", "error", 5000);
+  } else {
+    console.error('[POPUP_SCRIPT] Both audio and screenshot capabilities unavailable');
+    showPopupMessage("❌ Extension capabilities unavailable - please check permissions", "error", 8000);
+    statusDisplay.textContent = 'Disabled';
+    statusDisplay.style.color = 'red';
+  }
+}
+
 // 頁面載入後執行的初始化函數
 document.addEventListener('DOMContentLoaded', function() {
   console.log('[POPUP_SCRIPT] 頁面載入完成，初始化應用');
+  
+  // 检查扩展状态并显示能力
+  checkExtensionCapabilities();
   
   // 立即從localStorage讀取團隊數據
   try {
@@ -409,6 +444,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // 這裡只需要更新顯示
         displayTranscript();
         showPopupMessage("Screenshot analyzed and added to transcript", "success", 2000);
+        break;
+        
+      case 'extensionDisabled':
+        // 处理扩展被禁用的情况
+        console.error('[POPUP_SCRIPT] Extension disabled error:', message.error);
+        showPopupMessage("⚠️ Extension may be disabled - audio transcription unavailable", "error", 8000);
+        statusDisplay.textContent = 'Extension Error';
+        statusDisplay.style.color = 'red';
+        break;
+        
+      case 'audioCaptureError':
+        // 处理音频捕获错误
+        console.error('[POPUP_SCRIPT] Audio capture error:', message.error);
+        showPopupMessage("🎤 Audio capture failed - check extension permissions", "error", 6000);
         break;
     }
     
