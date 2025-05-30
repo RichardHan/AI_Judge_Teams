@@ -9,7 +9,8 @@ let captureState = {
   downloadFiles: false, // 控制是否下載音訊檔案
   transcriptChunks: [], // 儲存轉錄片段以便popup重新打開時恢復
   lastScreenshotDataUrl: null,
-  acceptingTranscriptions: false // 新增：控制是否接受新的轉錄結果
+  acceptingTranscriptions: false, // 新增：控制是否接受新的轉錄結果
+  saveScheduled: false // 新增：防止重複保存的標誌
 };
 
 // 錄音相關
@@ -59,6 +60,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Store state before starting capture
         captureState.isCapturing = true;
         captureState.acceptingTranscriptions = true; // 開始接受轉錄結果
+        captureState.saveScheduled = false; // 重置保存標誌
         captureState.activeTeamId = message.options.teamId;
         console.log(`[BACKGROUND_SCRIPT] captureState.activeTeamId explicitly set to: ${captureState.activeTeamId} from message options.`);
         captureState.captureMode = message.options.captureMode;
@@ -420,15 +422,20 @@ function stopCapturing() {
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
   
   // Always try to save existing transcript data when stopping, regardless of whether there's a final audio segment
-  if (captureState.transcriptChunks.length > 0) {
+  if (captureState.transcriptChunks.length > 0 && !captureState.saveScheduled) {
     console.log('[BACKGROUND_SCRIPT] Found existing transcript chunks, scheduling save operation');
+    captureState.saveScheduled = true; // 設置標誌防止重複保存
     // 增加延遲時間，等待可能還在處理中的API請求完成
     setTimeout(() => {
       console.log('[BACKGROUND_SCRIPT] Executing delayed save operation after stopping');
       saveTranscriptToTeamInBackground();
     }, 5000); // 增加到5秒，給更多時間讓pending的API請求完成
   } else {
-    console.log('[BACKGROUND_SCRIPT] No transcript chunks found to save');
+    if (captureState.transcriptChunks.length === 0) {
+      console.log('[BACKGROUND_SCRIPT] No transcript chunks found to save');
+    } else {
+      console.log('[BACKGROUND_SCRIPT] Save already scheduled, skipping duplicate save');
+    }
   }
   
   // Notify all open extension pages of state change
@@ -846,13 +853,10 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
           transcriptChunks: captureState.transcriptChunks
         });
         
-        // 如果是最後一個區塊，保存到團隊記錄
+        // 移除isFinal的自動保存邏輯，讓stopCapturing統一處理保存
+        // 這樣可以防止重複保存的問題
         if (isFinal) {
-          console.log('[BACKGROUND_SCRIPT] Final chunk received, preparing to save transcript to team');
-          // 延遲保存以確保所有處理完成
-          setTimeout(() => {
-            saveTranscriptToTeamInBackground();
-          }, 1000);
+          console.log('[BACKGROUND_SCRIPT] Final chunk received, but save will be handled by stopCapturing to prevent duplicates');
         }
       });
     }).catch(error => {
@@ -942,6 +946,9 @@ function saveTranscriptToTeamInBackground() {
       } else {
         console.log('[BACKGROUND_SCRIPT] Save message sent successfully, response:', response);
       }
+      // 重置保存標誌，準備下一次錄音
+      captureState.saveScheduled = false;
+      console.log('[BACKGROUND_SCRIPT] Reset saveScheduled flag after save attempt');
     });
     
     console.log('[BACKGROUND_SCRIPT] Transcript save request sent to frontend');
