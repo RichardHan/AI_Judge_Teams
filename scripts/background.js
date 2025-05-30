@@ -415,6 +415,16 @@ function stopCapturing() {
   
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
   
+  // Always try to save existing transcript data when stopping, regardless of whether there's a final audio segment
+  if (captureState.transcriptChunks.length > 0) {
+    console.log('[BACKGROUND_SCRIPT] Found existing transcript chunks, scheduling save operation');
+    setTimeout(() => {
+      saveTranscriptToTeamInBackground();
+    }, 2000); // Give time for any final audio processing to complete
+  } else {
+    console.log('[BACKGROUND_SCRIPT] No transcript chunks found to save');
+  }
+  
   // Notify all open extension pages of state change
   chrome.runtime.sendMessage({
     action: 'captureStateChanged',
@@ -856,14 +866,23 @@ function saveTranscriptToTeamInBackground() {
     console.log('[BACKGROUND_SCRIPT] saveTranscriptToTeamInBackground - Starting to save transcript');
     console.log('[BACKGROUND_SCRIPT] Active team ID:', captureState.activeTeamId);
     console.log('[BACKGROUND_SCRIPT] Transcript chunks length:', captureState.transcriptChunks.length);
+    console.log('[BACKGROUND_SCRIPT] Transcript chunks:', JSON.stringify(captureState.transcriptChunks, null, 2));
     
     if (!captureState.activeTeamId) {
       console.warn('[BACKGROUND_SCRIPT] Cannot save transcript: no active team ID');
+      chrome.runtime.sendMessage({
+        action: 'transcriptionError',
+        error: 'Cannot save transcript: no active team selected'
+      });
       return false;
     }
     
     if (captureState.transcriptChunks.length === 0) {
       console.warn('[BACKGROUND_SCRIPT] Cannot save transcript: empty chunks');
+      chrome.runtime.sendMessage({
+        action: 'transcriptionError',
+        error: 'Cannot save transcript: no transcription data available'
+      });
       return false;
     }
     
@@ -874,12 +893,24 @@ function saveTranscriptToTeamInBackground() {
       return chunk.text || chunk.analysis || '';
     }).join(' ');
     
+    console.log('[BACKGROUND_SCRIPT] Full text to save:', fullText);
+    
     // 通知前端保存轉錄記錄
-    chrome.runtime.sendMessage({
+    const messageToSend = {
       action: 'saveTranscriptToTeam',
       teamId: captureState.activeTeamId,
       transcriptChunks: captureState.transcriptChunks,
       fullText: fullText
+    };
+    
+    console.log('[BACKGROUND_SCRIPT] Sending message to popup:', JSON.stringify(messageToSend, null, 2));
+    
+    chrome.runtime.sendMessage(messageToSend, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('[BACKGROUND_SCRIPT] Error sending save message:', chrome.runtime.lastError);
+      } else {
+        console.log('[BACKGROUND_SCRIPT] Save message sent successfully, response:', response);
+      }
     });
     
     console.log('[BACKGROUND_SCRIPT] Transcript save request sent to frontend');
@@ -887,6 +918,10 @@ function saveTranscriptToTeamInBackground() {
     
   } catch (error) {
     console.error('[BACKGROUND_SCRIPT] saveTranscriptToTeamInBackground error:', error);
+    chrome.runtime.sendMessage({
+      action: 'transcriptionError',
+      error: `Failed to save transcript: ${error.message}`
+    });
     return false;
   }
 }

@@ -431,12 +431,16 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'saveTranscriptToTeam':
         // 处理来自background的保存转录请求
         console.log('[POPUP_SCRIPT] Received saveTranscriptToTeam request from background');
-        if (saveTranscriptToTeamFromBackground(message.teamId, message.transcriptChunks, message.fullText)) {
+        console.log('[POPUP_SCRIPT] Message details:', JSON.stringify(message, null, 2));
+        const saveResult = saveTranscriptToTeamFromBackground(message.teamId, message.transcriptChunks, message.fullText);
+        if (saveResult) {
           console.log('[POPUP_SCRIPT] Transcript saved successfully from background request');
           showPopupMessage("轉錄已保存到團隊記錄", "success", 3000);
+          sendResponse({ success: true, message: 'Transcript saved successfully' });
         } else {
           console.error('[POPUP_SCRIPT] Failed to save transcript from background request');
           showPopupMessage("保存轉錄失敗", "error", 3000);
+          sendResponse({ success: false, error: 'Failed to save transcript' });
         }
         break;
         
