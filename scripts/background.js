@@ -281,6 +281,43 @@ function captureNewSegment() {
       }
       console.log('[BACKGROUND_SCRIPT] Finished inspecting audio tracks.');
       
+      // 創建音頻上下文來重新路由音頻到揚聲器
+      try {
+        // Check if audio rerouting is enabled
+        const enableAudioRerouting = await getFromStorage('enable_audio_rerouting');
+        if (enableAudioRerouting !== 'false') {
+          const audioContext = new AudioContext();
+          const source = audioContext.createMediaStreamSource(stream);
+          const destination = audioContext.createMediaStreamDestination();
+          
+          // 將音頻同時連接到目標（用於播放）和保持原始流（用於錄製）
+          source.connect(destination);
+          source.connect(audioContext.destination); // 這會將音頻輸出到揚聲器
+          
+          console.log('[BACKGROUND_SCRIPT] Audio rerouting to speakers successful');
+          
+          // 通知用戶音頻已重新路由
+          chrome.runtime.sendMessage({
+            action: 'audioReroutingSuccess',
+            message: 'Audio is now being captured and played through speakers simultaneously'
+          });
+        } else {
+          console.log('[BACKGROUND_SCRIPT] Audio rerouting disabled by user setting');
+          // 通知用戶音頻重新路由已禁用
+          chrome.runtime.sendMessage({
+            action: 'audioReroutingWarning',
+            message: 'Audio rerouting disabled - tab audio will be muted during capture'
+          });
+        }
+      } catch (audioError) {
+        console.warn('[BACKGROUND_SCRIPT] Audio rerouting failed:', audioError);
+        // 如果音頻重新路由失敗，仍然繼續錄製，但通知用戶
+        chrome.runtime.sendMessage({
+          action: 'audioReroutingWarning',
+          message: 'Audio capture working but tab audio may be muted. This is normal.'
+        });
+      }
+      
       // Store the new stream
       if (captureStream) {
         // Safely close the old stream before replacing it
@@ -440,7 +477,7 @@ function saveAudioBlobToFile(audioBlob, segmentType) {
 }
 
 // 截圖捕獲函數
-async function captureScreenshot() {
+function captureScreenshot() {
   console.log('[BACKGROUND_SCRIPT] Starting screenshot capture');
   
   try {

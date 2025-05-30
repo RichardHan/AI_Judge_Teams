@@ -439,6 +439,18 @@ document.addEventListener('DOMContentLoaded', function() {
           showPopupMessage("保存轉錄失敗", "error", 3000);
         }
         break;
+        
+      case 'audioReroutingSuccess':
+        // 处理音频重新路由成功
+        console.log('[POPUP_SCRIPT] Audio rerouting successful:', message.message);
+        showPopupMessage("🔊 Audio capture active - you should hear tab audio normally", "success", 4000);
+        break;
+        
+      case 'audioReroutingWarning':
+        // 处理音频重新路由警告
+        console.warn('[POPUP_SCRIPT] Audio rerouting warning:', message.message);
+        showPopupMessage("⚠️ Audio capture active but tab audio may be muted (this is normal)", "error", 5000);
+        break;
     }
     
     return true;
@@ -732,6 +744,7 @@ function loadSettings() {
   const savedLanguage = localStorage.getItem('transcription_language') || '';
   const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
   const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false'; // Default to true
+  const enableAudioRerouting = localStorage.getItem('enable_audio_rerouting') !== 'false'; // Default to true
   
   // Load AI Judge settings
   const enableJudge1 = localStorage.getItem('enable_judge1_judge') !== 'false';
@@ -747,6 +760,7 @@ function loadSettings() {
   document.getElementById('languageSelect').value = savedLanguage;
   document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
   document.getElementById('enableScreenshotAnalysis').checked = enableScreenshotAnalysis;
+  document.getElementById('enableAudioRerouting').checked = enableAudioRerouting;
   
   // Set AI Judge settings
   document.getElementById('enableJudge1').checked = enableJudge1;
@@ -1060,6 +1074,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const screenshotDetailLevel = document.getElementById('screenshotDetailSelect').value;
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
   const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
+  const enableAudioRerouting = document.getElementById('enableAudioRerouting').checked;
   
   // Get AI Judge settings
   const enableJudge1 = document.getElementById('enableJudge1').checked;
@@ -1100,6 +1115,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('openai_screenshot_model', selectedScreenshotModel);
   localStorage.setItem('screenshot_detail_level', screenshotDetailLevel);
   localStorage.setItem('enable_screenshot_analysis', enableScreenshotAnalysis.toString());
+  localStorage.setItem('enable_audio_rerouting', enableAudioRerouting.toString());
   localStorage.setItem('download_audio_files', downloadFiles.toString());
   localStorage.setItem('transcription_language', document.getElementById('languageSelect').value);
   
@@ -1119,6 +1135,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     'openai_screenshot_model': selectedScreenshotModel,
     'screenshot_detail_level': screenshotDetailLevel,
     'enable_screenshot_analysis': enableScreenshotAnalysis.toString(),
+    'enable_audio_rerouting': enableAudioRerouting.toString(),
     'download_audio_files': downloadFiles.toString(),
     'transcription_language': document.getElementById('languageSelect').value,
     'enable_judge1_judge': enableJudge1,
