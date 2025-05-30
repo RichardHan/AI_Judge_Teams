@@ -8,7 +8,8 @@ let captureState = {
   segmentNumber: 0,  // Track segment number to help with file naming
   downloadFiles: false, // 控制是否下載音訊檔案
   transcriptChunks: [], // 儲存轉錄片段以便popup重新打開時恢復
-  lastScreenshotDataUrl: null
+  lastScreenshotDataUrl: null,
+  acceptingTranscriptions: false // 新增：控制是否接受新的轉錄結果
 };
 
 // 錄音相關
@@ -57,6 +58,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         // Store state before starting capture
         captureState.isCapturing = true;
+        captureState.acceptingTranscriptions = true; // 開始接受轉錄結果
         captureState.activeTeamId = message.options.teamId;
         console.log(`[BACKGROUND_SCRIPT] captureState.activeTeamId explicitly set to: ${captureState.activeTeamId} from message options.`);
         captureState.captureMode = message.options.captureMode;
@@ -386,8 +388,10 @@ function captureNewSegment() {
 function stopCapturing() {
   console.log('[BACKGROUND_SCRIPT] stopCapturing called.');
   
-  // Set state flag first so no new segments will start
+  // Set state flags first so no new segments will start and no new transcriptions will be accepted
   captureState.isCapturing = false; 
+  captureState.acceptingTranscriptions = false; // 立即停止接受新的轉錄結果
+  console.log('[BACKGROUND_SCRIPT] Set acceptingTranscriptions to false - no more transcription results will be processed');
   
   if (transcribeInterval) {
     clearInterval(transcribeInterval);
@@ -418,9 +422,11 @@ function stopCapturing() {
   // Always try to save existing transcript data when stopping, regardless of whether there's a final audio segment
   if (captureState.transcriptChunks.length > 0) {
     console.log('[BACKGROUND_SCRIPT] Found existing transcript chunks, scheduling save operation');
+    // 增加延遲時間，等待可能還在處理中的API請求完成
     setTimeout(() => {
+      console.log('[BACKGROUND_SCRIPT] Executing delayed save operation after stopping');
       saveTranscriptToTeamInBackground();
-    }, 2000); // Give time for any final audio processing to complete
+    }, 5000); // 增加到5秒，給更多時間讓pending的API請求完成
   } else {
     console.log('[BACKGROUND_SCRIPT] No transcript chunks found to save');
   }
@@ -478,6 +484,12 @@ function saveAudioBlobToFile(audioBlob, segmentType) {
 // 截圖捕獲函數
 function captureScreenshot() {
   console.log('[BACKGROUND_SCRIPT] Starting screenshot capture');
+  
+  // 檢查是否還在接受新的分析結果
+  if (!captureState.acceptingTranscriptions) {
+    console.log('[BACKGROUND_SCRIPT] Not accepting transcriptions anymore, skipping screenshot capture');
+    return;
+  }
   
   // Check if screenshot analysis is enabled first
   getFromStorage('enable_screenshot_analysis').then(enableScreenshotAnalysis => {
@@ -668,6 +680,12 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
         if (analysis) {
           console.log('[BACKGROUND_SCRIPT] Screenshot analysis completed:', analysis);
           
+          // 再次檢查是否還應該接受分析結果
+          if (!captureState.acceptingTranscriptions) {
+            console.log('[BACKGROUND_SCRIPT] Recording stopped during screenshot analysis, ignoring result:', analysis);
+            return;
+          }
+          
           // 創建截圖分析記錄
           const screenshotAnalysis = {
             timestamp: timestamp,
@@ -729,6 +747,13 @@ function getFromStorage(key) {
 function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
   console.log('[BACKGROUND_SCRIPT] Processing audio chunk in background:', timestamp);
   console.log('[BACKGROUND_SCRIPT] Is final chunk:', isFinal ? 'Yes' : 'No');
+  console.log('[BACKGROUND_SCRIPT] acceptingTranscriptions:', captureState.acceptingTranscriptions);
+  
+  // 檢查是否還應該接受轉錄結果
+  if (!captureState.acceptingTranscriptions) {
+    console.log('[BACKGROUND_SCRIPT] Not accepting transcriptions anymore, ignoring audio chunk from:', timestamp);
+    return;
+  }
   
   // 並行獲取API設置
   Promise.all([
@@ -795,6 +820,12 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
         // Check if transcription has content
         if (!result.text || result.text.trim() === '') {
           console.warn('[BACKGROUND_SCRIPT] Transcription returned empty text');
+          return;
+        }
+        
+        // 再次檢查是否還應該接受轉錄結果（防止在API請求期間停止了錄音）
+        if (!captureState.acceptingTranscriptions) {
+          console.log('[BACKGROUND_SCRIPT] Recording stopped during API request, ignoring transcription result:', result.text);
           return;
         }
         

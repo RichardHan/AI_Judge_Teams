@@ -270,7 +270,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // 停止捕獲按鈕點擊事件
   stopBtn.addEventListener('click', function() {
     console.log('[POPUP_SCRIPT] StopBtn: Clicked. Current currentState:', JSON.stringify(currentState));
-    showPopupMessage("正在停止錄音...", "success", 2000);
+    showPopupMessage("正在停止錄音並等待所有轉錄完成...", "success", 3000);
     
     chrome.runtime.sendMessage({ action: 'stopCapture' }, function(response) {
       console.log('[POPUP_SCRIPT] 停止錄音響應:', response);
@@ -280,6 +280,9 @@ document.addEventListener('DOMContentLoaded', function() {
         currentState.isCapturing = false;
         updateUIState();
         
+        // 顯示等待消息
+        showPopupMessage("錄音已停止，等待所有轉錄處理完成...", "success", 5000);
+        
         // 延遲後清除轉錄內容顯示（background會自動保存）
         setTimeout(function() {
           transcriptChunks = [];
@@ -287,9 +290,9 @@ document.addEventListener('DOMContentLoaded', function() {
           transcriptSaved = false; // 重置保存狀態
           chrome.runtime.sendMessage({ action: 'clearTranscripts' });
           console.log('[POPUP_SCRIPT] Cleared transcript content display after stopping');
-        }, 2000);
+          showPopupMessage("所有轉錄已處理完成並保存到團隊記錄", "success", 3000);
+        }, 6000); // 比background的延遲稍長一點
         
-        showPopupMessage("錄音已停止，轉錄將自動保存", "success", 3000);
       } else {
         console.error('[POPUP_SCRIPT] 停止捕獲失敗:', response ? response.error : '沒有回應');
         showPopupMessage('停止錄音失敗: ' + (response ? response.error : '未知錯誤'), "error", 5000);
