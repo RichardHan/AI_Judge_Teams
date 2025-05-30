@@ -469,9 +469,8 @@ function saveAudioBlobToFile(audioBlob, segmentType) {
 function captureScreenshot() {
   console.log('[BACKGROUND_SCRIPT] Starting screenshot capture');
   
-  try {
-    // Check if screenshot analysis is enabled first
-    const enableScreenshotAnalysis = await getFromStorage('enable_screenshot_analysis');
+  // Check if screenshot analysis is enabled first
+  getFromStorage('enable_screenshot_analysis').then(enableScreenshotAnalysis => {
     console.log('[BACKGROUND_SCRIPT] Screenshot analysis enabled:', enableScreenshotAnalysis !== 'false');
     
     if (enableScreenshotAnalysis === 'false') {
@@ -480,51 +479,43 @@ function captureScreenshot() {
     }
     
     // 獲取當前活躍的標籤頁
-    const tabs = await new Promise((resolve) => {
-      chrome.tabs.query({active: true, currentWindow: true}, resolve);
-    });
-    
-    if (tabs.length === 0) {
-      console.error('[BACKGROUND_SCRIPT] No active tab found for screenshot');
-      return;
-    }
-    
-    const activeTab = tabs[0];
-    
-    // 捕獲可見標籤頁的截圖
-    const screenshotDataUrl = await new Promise((resolve, reject) => {
+    chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+      if (tabs.length === 0) {
+        console.error('[BACKGROUND_SCRIPT] No active tab found for screenshot');
+        return;
+      }
+      
+      const activeTab = tabs[0];
+      
+      // 捕獲可見標籤頁的截圖
       chrome.tabs.captureVisibleTab(activeTab.windowId, {format: 'jpeg', quality: 85}, (dataUrl) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(dataUrl);
+          console.error('[BACKGROUND_SCRIPT] Screenshot capture failed:', chrome.runtime.lastError.message);
+          return;
         }
+        
+        console.log('[BACKGROUND_SCRIPT] Screenshot captured successfully');
+        
+        // 與前一張截圖比較
+        if (captureState.lastScreenshotDataUrl === dataUrl) {
+          console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis.');
+          return;
+        }
+        
+        // 更新上一張截圖的 Data URL
+        captureState.lastScreenshotDataUrl = dataUrl;
+        
+        // 處理截圖
+        processScreenshot(dataUrl);
       });
     });
-    
-    console.log('[BACKGROUND_SCRIPT] Screenshot captured successfully');
-    
-    // 與前一張截圖比較
-    if (captureState.lastScreenshotDataUrl === screenshotDataUrl) {
-      console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis.');
-      // Optionally, still save the timestamp or a placeholder to indicate a frame was captured but not analyzed
-      // For now, we just skip.
-      return;
-    }
-    
-    // 更新上一張截圖的 Data URL
-    captureState.lastScreenshotDataUrl = screenshotDataUrl;
-    
-    // 處理截圖
-    await processScreenshot(screenshotDataUrl);
-    
-  } catch (error) {
-    console.error('[BACKGROUND_SCRIPT] Screenshot capture failed:', error);
-  }
+  }).catch(error => {
+    console.error('[BACKGROUND_SCRIPT] Error getting screenshot setting:', error);
+  });
 }
 
 // 處理截圖並發送給LLM分析
-async function processScreenshot(screenshotDataUrl) {
+function processScreenshot(screenshotDataUrl) {
   console.log('[BACKGROUND_SCRIPT] Processing screenshot');
   
   try {
@@ -536,10 +527,10 @@ async function processScreenshot(screenshotDataUrl) {
     }
     
     // 從localStorage獲取截圖分析詳細程度設置
-    const screenshotDetailLevel = await getFromStorage('screenshot_detail_level') || 'medium'; // Default to medium
+    const screenshotDetailLevel = getFromStorage('screenshot_detail_level') || 'medium'; // Default to medium
     
     // 發送截圖給LLM進行分析
-    await analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, screenshotDetailLevel);
+    analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, screenshotDetailLevel);
     
   } catch (error) {
     console.error('[BACKGROUND_SCRIPT] Screenshot processing failed:', error);
@@ -572,14 +563,14 @@ function saveScreenshotToFile(screenshotDataUrl, timestamp) {
 }
 
 // 使用LLM分析截圖
-async function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'medium') {
+function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'medium') {
   console.log(`[BACKGROUND_SCRIPT] Analyzing screenshot with LLM (Detail Level: ${detailLevel})`);
   
   try {
     // 從localStorage獲取設置
-    const apiKey = await getFromStorage('openai_api_key');
-    const apiEndpoint = await getFromStorage('openai_api_endpoint') || 'https://api.openai.com/v1';
-    const screenshotModel = await getFromStorage('openai_screenshot_model') || 'gpt-4o';
+    const apiKey = getFromStorage('openai_api_key');
+    const apiEndpoint = getFromStorage('openai_api_endpoint') || 'https://api.openai.com/v1';
+    const screenshotModel = getFromStorage('openai_screenshot_model') || 'gpt-4o';
     
     console.log(`[BACKGROUND_SCRIPT] Screenshot analysis settings - Model: ${screenshotModel}, Endpoint: ${apiEndpoint}`);
     
@@ -634,7 +625,7 @@ async function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLeve
       max_tokens: 500
     };
     
-    const response = await fetch(`${baseApiUrl}/chat/completions`, {
+    const response = fetch(`${baseApiUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -644,7 +635,7 @@ async function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLeve
     });
     
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = response.text();
       console.error('[BACKGROUND_SCRIPT] Screenshot analysis API error:', response.status, errorText);
       chrome.runtime.sendMessage({
         action: 'screenshotAnalysisError',
@@ -653,7 +644,7 @@ async function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLeve
       return;
     }
     
-    const result = await response.json();
+    const result = response.json();
     const analysis = result.choices?.[0]?.message?.content;
     
     if (analysis) {
@@ -710,15 +701,15 @@ function getFromStorage(key) {
 }
 
 // 在背景處理音頻轉文字
-async function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
+function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
   try {
     console.log('[BACKGROUND_SCRIPT] Processing audio chunk in background:', timestamp);
     console.log('[BACKGROUND_SCRIPT] Is final chunk:', isFinal ? 'Yes' : 'No');
     
     // 獲取API設置
-    const apiKey = await getFromStorage('openai_api_key');
-    const apiEndpoint = await getFromStorage('openai_api_endpoint') || 'https://api.openai.com/v1';
-    const selectedLanguage = await getFromStorage('transcription_language') || '';
+    const apiKey = getFromStorage('openai_api_key');
+    const apiEndpoint = getFromStorage('openai_api_endpoint') || 'https://api.openai.com/v1';
+    const selectedLanguage = getFromStorage('transcription_language') || '';
     
     if (!apiKey) {
       console.error('[BACKGROUND_SCRIPT] No API key found for transcription');
@@ -755,7 +746,7 @@ async function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
     }
     
     // 調用API進行轉錄
-    const response = await fetch(`${baseApiUrl}/audio/transcriptions`, {
+    const response = fetch(`${baseApiUrl}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`
@@ -764,7 +755,7 @@ async function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
     });
     
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = response.text();
       console.error('[BACKGROUND_SCRIPT] Transcription API error:', response.status, errorText);
       chrome.runtime.sendMessage({
         action: 'transcriptionError',
@@ -773,7 +764,7 @@ async function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
       return;
     }
     
-    const result = await response.json();
+    const result = response.json();
     
     // Check if transcription has content
     if (!result.text || result.text.trim() === '') {
@@ -837,7 +828,7 @@ function base64ToBlob(base64, mimeType) {
 }
 
 // 在背景中保存轉錄到團隊記錄
-async function saveTranscriptToTeamInBackground() {
+function saveTranscriptToTeamInBackground() {
   try {
     console.log('[BACKGROUND_SCRIPT] saveTranscriptToTeamInBackground - Starting to save transcript');
     console.log('[BACKGROUND_SCRIPT] Active team ID:', captureState.activeTeamId);
