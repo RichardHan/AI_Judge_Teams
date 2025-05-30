@@ -104,13 +104,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }, 10000);
         
         // Set interval to capture screenshots every 10 seconds
-        screenshotInterval = setInterval(async () => {
+        screenshotInterval = setInterval(() => {
           if (captureState.isCapturing) {
             // Check if screenshot analysis is enabled
-            const enableScreenshotAnalysis = await getFromStorage('enable_screenshot_analysis');
-            if (enableScreenshotAnalysis !== 'false') {
-              captureScreenshot();
-            }
+            getFromStorage('enable_screenshot_analysis').then(enableScreenshotAnalysis => {
+              if (enableScreenshotAnalysis !== 'false') {
+                captureScreenshot();
+              }
+            });
           }
         }, 10000);
         
@@ -283,34 +284,22 @@ function captureNewSegment() {
       
       // 創建音頻上下文來重新路由音頻到揚聲器
       try {
-        // Check if audio rerouting is enabled
-        const enableAudioRerouting = await getFromStorage('enable_audio_rerouting');
-        if (enableAudioRerouting !== 'false') {
-          const audioContext = new AudioContext();
-          const source = audioContext.createMediaStreamSource(stream);
-          const destination = audioContext.createMediaStreamDestination();
-          
-          // 將音頻同時連接到目標（用於播放）和保持原始流（用於錄製）
-          source.connect(destination);
-          source.connect(audioContext.destination); // 這會將音頻輸出到揚聲器
-          
-          console.log('[BACKGROUND_SCRIPT] Audio rerouting to speakers successful');
-          
-          // 通知用戶音頻已重新路由
-          chrome.runtime.sendMessage({
-            action: 'audioReroutingSuccess',
-            message: 'Audio is now being captured and played through speakers simultaneously'
-          });
-        } else {
-          console.log('[BACKGROUND_SCRIPT] Audio rerouting disabled by user setting');
-          // 通知用戶音頻重新路由已禁用
-          chrome.runtime.sendMessage({
-            action: 'audioReroutingWarning',
-            message: 'Audio rerouting disabled - tab audio will be muted during capture'
-          });
-        }
+        // Basic audio rerouting - always enabled for now to fix the core issue
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        // 將音頻同時連接到揚聲器（用於播放）和保持原始流（用於錄製）
+        source.connect(audioContext.destination); // 這會將音頻輸出到揚聲器
+        
+        console.log('[BACKGROUND_SCRIPT] Audio rerouting to speakers successful');
+        
+        // 通知用戶音頻已重新路由
+        chrome.runtime.sendMessage({
+          action: 'audioReroutingSuccess',
+          message: 'Audio is now being captured and played through speakers simultaneously'
+        });
       } catch (audioError) {
-        console.warn('[BACKGROUND_SCRIPT] Audio rerouting failed:', audioError);
+        console.warn('[BACKGROUND_SCRIPT] Audio rerouting setup failed:', audioError);
         // 如果音頻重新路由失敗，仍然繼續錄製，但通知用戶
         chrome.runtime.sendMessage({
           action: 'audioReroutingWarning',
