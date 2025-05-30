@@ -271,35 +271,6 @@ document.addEventListener('DOMContentLoaded', function() {
   stopBtn.addEventListener('click', function() {
     console.log('[POPUP_SCRIPT] StopBtn: Clicked. Current currentState:', JSON.stringify(currentState));
     showPopupMessage("正在停止錄音...", "success", 2000);
-    const teamIdForSaving = currentState.activeTeamId; // Capture ID immediately
-    console.log('[POPUP_SCRIPT] StopBtn: teamIdForSaving is:', teamIdForSaving);
-    const showHistoryBtn = document.getElementById('showHistoryBtn');
-    showHistoryBtn.disabled = true; // Disable history button
-
-    // 確保即使background.js未發送final chunk，我們也會存儲轉錄
-    const forceSaveTranscript = function(currentTeamId) { // Pass teamId
-      if (transcriptChunks.length > 0 && !transcriptSaved) {
-        console.log('[POPUP_SCRIPT] 強制保存轉錄記錄，轉錄塊數量:', transcriptChunks.length);
-        // 標記最後一個區塊為final
-        transcriptChunks[transcriptChunks.length - 1].isFinal = true;
-        // 保存轉錄
-        if (saveTranscriptToTeam(currentTeamId)) { // Pass teamId to save function
-          transcriptSaved = true; // 標記已保存
-          console.log('[POPUP_SCRIPT] 成功保存轉錄記錄');
-          showPopupMessage("轉錄已保存到歷史記錄", "success", 3000);
-        } else {
-          console.error('[POPUP_SCRIPT] 保存轉錄記錄失敗');
-          showPopupMessage("保存轉錄失敗，請查看控制台", "error", 3000);
-        }
-      } else if (transcriptSaved) {
-        console.log('[POPUP_SCRIPT] 轉錄已經保存過了，跳過重複保存');
-        showPopupMessage("轉錄已經保存", "success", 2000);
-      } else {
-        console.warn('[POPUP_SCRIPT] 沒有轉錄內容可保存');
-        showPopupMessage("無轉錄內容可保存", "error", 3000);
-      }
-      showHistoryBtn.disabled = false; // Re-enable history button
-    };
     
     chrome.runtime.sendMessage({ action: 'stopCapture' }, function(response) {
       console.log('[POPUP_SCRIPT] 停止錄音響應:', response);
@@ -309,37 +280,19 @@ document.addEventListener('DOMContentLoaded', function() {
         currentState.isCapturing = false;
         updateUIState();
         
-        // 延遲後處理轉錄保存，確保所有音訊塊已收到
+        // 延遲後清除轉錄內容顯示（background會自動保存）
         setTimeout(function() {
-          console.log('[POPUP_SCRIPT] 延遲保存轉錄，確保所有塊已經處理');
-          // 檢查是否有轉錄塊
-          if (transcriptChunks.length > 0) {
-            forceSaveTranscript(teamIdForSaving); // Pass captured ID
-            
-            // 保存完成後清除轉錄內容（只有在停止錄音時才清除）
-            setTimeout(function() {
-              transcriptChunks = [];
-              transcriptContainer.innerHTML = '';
-              transcriptSaved = false; // 重置保存狀態
-              chrome.runtime.sendMessage({ action: 'clearTranscripts' });
-              console.log('[POPUP_SCRIPT] Cleared transcript content after saving');
-            }, 1000);
-          } else {
-            console.warn('[POPUP_SCRIPT] 停止錄音後沒有轉錄塊');
-            showPopupMessage("未檢測到有效轉錄", "error", 3000);
-            showHistoryBtn.disabled = false; // Re-enable if no chunks
-          }
-        }, 3000); // 等待3秒確保所有API回應都已處理
+          transcriptChunks = [];
+          transcriptContainer.innerHTML = '';
+          transcriptSaved = false; // 重置保存狀態
+          chrome.runtime.sendMessage({ action: 'clearTranscripts' });
+          console.log('[POPUP_SCRIPT] Cleared transcript content display after stopping');
+        }, 2000);
+        
+        showPopupMessage("錄音已停止，轉錄將自動保存", "success", 3000);
       } else {
         console.error('[POPUP_SCRIPT] 停止捕獲失敗:', response ? response.error : '沒有回應');
-        alert('停止錄音失敗: ' + (response ? response.error : '未知錯誤'));
-        
-        // 即使停止失敗，也嘗試保存現有轉錄
-        if (transcriptChunks.length > 0) {
-          forceSaveTranscript(teamIdForSaving); // Pass captured ID
-        } else {
-          showHistoryBtn.disabled = false; // Also re-enable if stop failed and no chunks
-        }
+        showPopupMessage('停止錄音失敗: ' + (response ? response.error : '未知錯誤'), "error", 5000);
       }
     });
   });
@@ -390,17 +343,19 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 更新UI狀態
   function updateUIState() {
+    const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false';
+    
     if (currentState.isCapturing) {
       startBtn.disabled = true;
       stopBtn.disabled = false;
       teamSelect.disabled = true;
-      statusDisplay.textContent = 'Recording...';
+      statusDisplay.textContent = `Recording... ${enableScreenshotAnalysis ? '📸' : ''}`;
       statusDisplay.style.color = 'red';
     } else {
       startBtn.disabled = false;
       stopBtn.disabled = true;
       teamSelect.disabled = false;
-      statusDisplay.textContent = 'Ready';
+      statusDisplay.textContent = `Ready ${enableScreenshotAnalysis ? '📸' : ''}`;
       statusDisplay.style.color = 'green';
     }
   }
@@ -425,16 +380,17 @@ document.addEventListener('DOMContentLoaded', function() {
         updateUIState();
         break;
         
-      case 'audioChunk':
-        // 處理收到的音訊區塊
-        processAudioChunk(message);
-        break;
-        
       case 'transcriptUpdated':
         // 接收來自 background script 的轉錄更新
         console.log('[POPUP_SCRIPT] Received transcriptUpdated from background:', message.transcriptChunks.length);
         transcriptChunks = [...message.transcriptChunks];
         displayTranscript();
+        // Update status to show transcription is working
+        if (currentState.isCapturing && statusDisplay) {
+          const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false';
+          statusDisplay.textContent = `Recording... ${enableScreenshotAnalysis ? '📸' : ''} 🎙️`;
+          statusDisplay.style.color = 'red';
+        }
         break;
         
       case 'screenshotAnalyzed':
@@ -459,157 +415,35 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('[POPUP_SCRIPT] Audio capture error:', message.error);
         showPopupMessage("🎤 Audio capture failed - check extension permissions", "error", 6000);
         break;
+        
+      case 'screenshotAnalysisError':
+        // 处理截图分析错误
+        console.error('[POPUP_SCRIPT] Screenshot analysis error:', message.error);
+        showPopupMessage(`📸 Screenshot analysis: ${message.error}`, "error", 5000);
+        break;
+        
+      case 'transcriptionError':
+        // 处理转录错误
+        console.error('[POPUP_SCRIPT] Transcription error:', message.error);
+        showPopupMessage(`🎙️ Transcription: ${message.error}`, "error", 5000);
+        break;
+        
+      case 'saveTranscriptToTeam':
+        // 处理来自background的保存转录请求
+        console.log('[POPUP_SCRIPT] Received saveTranscriptToTeam request from background');
+        if (saveTranscriptToTeamFromBackground(message.teamId, message.transcriptChunks, message.fullText)) {
+          console.log('[POPUP_SCRIPT] Transcript saved successfully from background request');
+          showPopupMessage("轉錄已保存到團隊記錄", "success", 3000);
+        } else {
+          console.error('[POPUP_SCRIPT] Failed to save transcript from background request');
+          showPopupMessage("保存轉錄失敗", "error", 3000);
+        }
+        break;
     }
     
     return true;
   });
 
-  // Add a debug function to help identify issues
-  function debugAudioProcessing(audioBlob, base64Size, timestamp) {
-    console.log(`[DEBUG] Processing audio chunk at ${timestamp}`);
-    console.log(`[DEBUG] Audio blob size: ${audioBlob.size} bytes`);
-    console.log(`[DEBUG] Base64 data size: ${base64Size} bytes`);
-    
-    // Check if audio is likely silent or very quiet
-    if (audioBlob.size < 1000) { // Arbitrary small size check
-      console.warn(`[DEBUG] Warning: Audio blob is very small (${audioBlob.size} bytes), might be silent`);
-      showPopupMessage("Warning: Audio capture seems to be very quiet or silent", "error", 5000);
-    }
-  }
-
-  
-  // 處理音訊區塊並轉錄
-  async function processAudioChunk(message) {
-    try {
-      console.log('處理音訊區塊:', message.timestamp);
-      console.log('是否為最終區塊:', message.isFinal ? 'Yes' : 'No');
-      
-      // 獲取API金鑰和端點
-      const apiKey = document.getElementById('apiKeyInput').value;
-      const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
-      
-      if (!apiKey) {
-        console.error('沒有設置 OpenAI API 金鑰');
-        showPopupMessage("Missing OpenAI API Key", "error", 3000);
-        return;
-      }
-      
-      // 確保 API 端點不以斜槓結尾
-      const baseApiUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
-      console.log(`[POPUP_SCRIPT] Using API endpoint for transcription: ${baseApiUrl}`);
-      
-      // 建立音訊檔案
-      const audioBlob = base64ToBlob(message.audioBase64, 'audio/webm');
-      
-      // Debug audio processing
-      debugAudioProcessing(audioBlob, message.audioBase64.length, message.timestamp);
-      
-      if (audioBlob.size < 100) {
-        console.error('Audio blob is too small, likely contains no audio data');
-        showPopupMessage("Empty audio segment detected", "error", 3000);
-        return;
-      }
-      
-      // Update status display
-      statusDisplay.textContent = 'Transcribing...';
-      showPopupMessage("Transcribing audio...", "success", 2000);
-      
-      // 建立FormData
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'audio.webm');
-      formData.append('model', 'whisper-1');
-      
-      // 添加語言參數（如果用戶有選擇的話）
-      const selectedLanguage = document.getElementById('languageSelect').value;
-      if (selectedLanguage) {
-        formData.append('language', selectedLanguage);
-        console.log(`[POPUP_SCRIPT] Using language: ${selectedLanguage}`);
-      } else {
-        console.log('[POPUP_SCRIPT] Using auto-detect language');
-      }
-      
-      // 調用API進行轉錄
-      const response = await fetch(`${baseApiUrl}/audio/transcriptions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: formData
-      });
-      
-      if (!response.ok) {
-        console.error('API請求失敗:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('API錯誤詳情:', errorText);
-        showPopupMessage(`Transcription failed: ${response.status} ${response.statusText}`, "error", 5000);
-        statusDisplay.textContent = 'Ready';
-        return;
-      }
-      
-      const result = await response.json();
-      
-      // Check if transcription has content
-      if (!result.text || result.text.trim() === '') {
-        console.warn('Transcription returned empty text');
-        showPopupMessage("Empty transcription returned - segment might be silent", "error", 3000);
-        return;
-      }
-      
-      // 保存轉錄結果
-      const transcriptChunk = {
-        timestamp: message.timestamp,
-        text: result.text,
-        isFinal: message.isFinal || false
-      };
-      
-      transcriptChunks.push(transcriptChunk);
-      
-      // 通知 background script 保存轉錄片段
-      chrome.runtime.sendMessage({
-        action: 'transcriptComplete',
-        transcript: transcriptChunk
-      });
-      
-      // 更新顯示
-      displayTranscript();
-      statusDisplay.textContent = message.isFinal ? 'Ready' : 'Recording...';
-      
-      // 如果是最後一個區塊，保存到團隊記錄
-      if (message.isFinal && !transcriptSaved) {
-        console.log('[POPUP_SCRIPT] 收到最終區塊，保存轉錄記錄到團隊');
-        if (saveTranscriptToTeam(currentState.activeTeamId)) {
-          transcriptSaved = true; // 標記已保存
-          console.log('[POPUP_SCRIPT] 轉錄已保存，設置 transcriptSaved = true');
-        }
-      }
-      
-    } catch (error) {
-      console.error('處理音訊區塊失敗:', error);
-      showPopupMessage(`Audio processing error: ${error.message}`, "error", 5000);
-      statusDisplay.textContent = 'Error';
-    }
-  }
-  
-  // base64轉Blob
-  function base64ToBlob(base64, mimeType) {
-    const byteCharacters = atob(base64);
-    const byteArrays = [];
-    
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-      const slice = byteCharacters.slice(offset, offset + 512);
-      
-      const byteNumbers = new Array(slice.length);
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
-      }
-      
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
-    }
-    
-    return new Blob(byteArrays, { type: mimeType });
-  }
-  
   // 顯示轉錄結果
   function displayTranscript() {
     transcriptContainer.innerHTML = '';
@@ -739,6 +573,74 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // 從background保存轉錄到團隊記錄
+  function saveTranscriptToTeamFromBackground(teamId, transcriptChunks, fullText) {
+    try {
+      console.log('[POPUP_SCRIPT] saveTranscriptToTeamFromBackground - Starting to save transcript');
+      console.log('[POPUP_SCRIPT] Team ID:', teamId);
+      console.log('[POPUP_SCRIPT] Transcript chunks length:', transcriptChunks.length);
+      
+      if (!teamId) {
+        console.warn('[POPUP_SCRIPT] Cannot save transcript: no team ID provided');
+        return false;
+      }
+      
+      if (!transcriptChunks || transcriptChunks.length === 0) {
+        console.warn('[POPUP_SCRIPT] Cannot save transcript: empty chunks');
+        return false;
+      }
+      
+      // 獲取最新的團隊數據，避免覆蓋其他更改
+      const latestTeams = JSON.parse(localStorage.getItem('teams')) || [];
+      console.log('[POPUP_SCRIPT] Teams loaded from localStorage:', latestTeams.length > 0 ? '成功' : '空或失敗');
+      
+      // 找到當前團隊
+      const teamIndex = latestTeams.findIndex(team => team.id === teamId);
+      console.log('[POPUP_SCRIPT] Team index for ID ' + teamId + ':', teamIndex);
+      
+      if (teamIndex === -1) {
+        console.warn('[POPUP_SCRIPT] Team not found with ID:', teamId);
+        return false;
+      }
+      
+      // 確保團隊有transcripts陣列
+      if (!latestTeams[teamIndex].transcripts) {
+        latestTeams[teamIndex].transcripts = [];
+      }
+      
+      // 準備轉錄數據的深拷貝
+      const transcriptChunksCopy = JSON.parse(JSON.stringify(transcriptChunks));
+      
+      // 添加新的轉錄記錄
+      const newTranscript = {
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        text: fullText,
+        chunks: transcriptChunksCopy
+      };
+      
+      latestTeams[teamIndex].transcripts.push(newTranscript);
+      
+      // 保存更新後的團隊數據
+      try {
+        localStorage.setItem('teams', JSON.stringify(latestTeams));
+        console.log('[POPUP_SCRIPT] Transcript saved successfully! Team:', latestTeams[teamIndex].name);
+        console.log('[POPUP_SCRIPT] Team now has transcripts count:', latestTeams[teamIndex].transcripts.length);
+        
+        // 更新本地activeTeams變量以保持一致
+        activeTeams = latestTeams;
+        
+        return true;
+      } catch (error) {
+        console.error('[POPUP_SCRIPT] Failed to save to localStorage:', error);
+        return false;
+      }
+    } catch (error) {
+      console.error('[POPUP_SCRIPT] saveTranscriptToTeamFromBackground error:', error);
+      return false;
+    }
+  }
+  
   // 設置按鈕事件
   document.getElementById('settingsBtn').addEventListener('click', function() {
     document.getElementById('settingsPanel').classList.toggle('hidden');
@@ -829,6 +731,7 @@ function loadSettings() {
   const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
   const savedLanguage = localStorage.getItem('transcription_language') || '';
   const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
+  const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false'; // Default to true
   
   // Load AI Judge settings
   const enableJudge1 = localStorage.getItem('enable_judge1_judge') !== 'false';
@@ -843,6 +746,7 @@ function loadSettings() {
   document.getElementById('downloadFilesCheckbox').checked = downloadFiles;
   document.getElementById('languageSelect').value = savedLanguage;
   document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
+  document.getElementById('enableScreenshotAnalysis').checked = enableScreenshotAnalysis;
   
   // Set AI Judge settings
   document.getElementById('enableJudge1').checked = enableJudge1;
@@ -987,6 +891,166 @@ async function testAPIConnection(showMessage = true) {
 // Event listener for Test Connection button
 document.getElementById('testConnectionBtn').addEventListener('click', () => testAPIConnection(true));
 
+// Event listener for Test Screenshot button
+document.getElementById('testScreenshotBtn').addEventListener('click', async function() {
+  const apiKey = document.getElementById('apiKeyInput').value.trim();
+  const screenshotModel = document.getElementById('screenshotModelSelect').value;
+  const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
+  
+  if (!enableScreenshotAnalysis) {
+    showPopupMessage('Screenshot analysis is disabled. Please enable it first.', 'error');
+    return;
+  }
+  
+  if (!apiKey) {
+    showPopupMessage('Please configure API key first.', 'error');
+    return;
+  }
+  
+  if (!screenshotModel) {
+    showPopupMessage('Please select a screenshot model first.', 'error');
+    return;
+  }
+  
+  showPopupMessage('Testing screenshot capture and analysis...', 'success');
+  
+  try {
+    // Send message to background script to test screenshot
+    chrome.runtime.sendMessage({ action: 'testScreenshot' }, function(response) {
+      if (response && response.success) {
+        showPopupMessage('Screenshot test successful! Check the transcript for analysis.', 'success', 5000);
+      } else {
+        showPopupMessage(`Screenshot test failed: ${response ? response.error : 'Unknown error'}`, 'error', 5000);
+      }
+    });
+  } catch (error) {
+    showPopupMessage(`Screenshot test error: ${error.message}`, 'error', 5000);
+  }
+});
+
+// Event listener for Audio Diagnostic button
+document.getElementById('testAudioBtn').addEventListener('click', async function() {
+  const apiKey = document.getElementById('apiKeyInput').value.trim();
+  const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  
+  console.log('[POPUP_SCRIPT] Running audio transcription diagnostic...');
+  
+  // Check basic settings
+  if (!apiKey) {
+    showPopupMessage('Please configure API key first.', 'error');
+    return;
+  }
+  
+  // Check Chrome API availability
+  if (!chrome.tabCapture || typeof chrome.tabCapture.capture !== 'function') {
+    showPopupMessage('❌ Chrome tabCapture API not available - check extension permissions', 'error', 8000);
+    return;
+  }
+  
+  // Check MediaRecorder support
+  if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') {
+    showPopupMessage('❌ MediaRecorder not supported in this browser', 'error', 8000);
+    return;
+  }
+  
+  console.log('[POPUP_SCRIPT] Checking MediaRecorder support:');
+  const supportedTypes = ['audio/webm', 'audio/ogg', 'audio/mp3'];
+  supportedTypes.forEach(type => {
+    const supported = MediaRecorder.isTypeSupported(type);
+    console.log(`[POPUP_SCRIPT] ${type}: ${supported ? 'Supported' : 'Not supported'}`);
+  });
+  
+  // Test API connection for audio transcription
+  try {
+    showPopupMessage('Testing audio transcription API...', 'success');
+    
+    const response = await fetch(`${apiEndpoint}/models`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const hasWhisper = data.data && data.data.some(model => model.id.includes('whisper'));
+    
+    if (hasWhisper) {
+      showPopupMessage('✅ Audio transcription API connection successful', 'success', 5000);
+    } else {
+      showPopupMessage('⚠️ API connected but no Whisper model found', 'error', 5000);
+    }
+    
+    // Test audio capture capability
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      if (tabs.length === 0) {
+        showPopupMessage('❌ No active tab found for audio capture test', 'error');
+        return;
+      }
+      
+      chrome.tabCapture.capture({ audio: true, video: false }, stream => {
+        if (!stream) {
+          showPopupMessage('❌ Failed to capture audio - check if tab has audio or permissions', 'error', 8000);
+          return;
+        }
+        
+        console.log('[POPUP_SCRIPT] Test audio capture successful');
+        
+        // Check audio tracks
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          showPopupMessage('❌ No audio tracks found in captured stream', 'error', 8000);
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        
+        console.log(`[POPUP_SCRIPT] Found ${audioTracks.length} audio tracks`);
+        audioTracks.forEach((track, index) => {
+          console.log(`[POPUP_SCRIPT] Track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+        });
+        
+        // Test MediaRecorder with the stream
+        try {
+          const testRecorder = new MediaRecorder(stream);
+          console.log('[POPUP_SCRIPT] MediaRecorder created successfully');
+          
+          let hasAudio = false;
+          testRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              hasAudio = true;
+              console.log(`[POPUP_SCRIPT] Test recording received ${e.data.size} bytes of audio data`);
+            }
+          };
+          
+          testRecorder.onstop = () => {
+            if (hasAudio) {
+              showPopupMessage('✅ Audio capture test successful - ready for transcription', 'success', 5000);
+            } else {
+              showPopupMessage('❌ Audio capture test failed - no audio data recorded', 'error', 8000);
+            }
+            stream.getTracks().forEach(track => track.stop());
+          };
+          
+          testRecorder.start();
+          setTimeout(() => {
+            testRecorder.stop();
+          }, 2000); // Record for 2 seconds
+          
+        } catch (error) {
+          showPopupMessage(`❌ MediaRecorder error: ${error.message}`, 'error', 8000);
+          stream.getTracks().forEach(track => track.stop());
+        }
+      });
+    });
+    
+  } catch (error) {
+    console.error('[POPUP_SCRIPT] Audio diagnostic error:', error);
+    showPopupMessage(`❌ Audio transcription API test failed: ${error.message}`, 'error', 8000);
+  }
+});
+
 // Event listener for Save Settings button
 document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
@@ -995,6 +1059,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const selectedScreenshotModel = document.getElementById('screenshotModelSelect').value;
   const screenshotDetailLevel = document.getElementById('screenshotDetailSelect').value;
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
+  const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
   
   // Get AI Judge settings
   const enableJudge1 = document.getElementById('enableJudge1').checked;
@@ -1034,6 +1099,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
   localStorage.setItem('openai_screenshot_model', selectedScreenshotModel);
   localStorage.setItem('screenshot_detail_level', screenshotDetailLevel);
+  localStorage.setItem('enable_screenshot_analysis', enableScreenshotAnalysis.toString());
   localStorage.setItem('download_audio_files', downloadFiles.toString());
   localStorage.setItem('transcription_language', document.getElementById('languageSelect').value);
   
@@ -1045,11 +1111,38 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('judge2_judge_prompt', judge2Prompt || DEFAULT_JUDGE_PROMPTS.judge2);
   localStorage.setItem('judge3_judge_prompt', judge3Prompt || DEFAULT_JUDGE_PROMPTS.judge3);
   
+  // Also save to chrome.storage.local for background script access
+  const settingsToStore = {
+    'openai_api_key': apiKey,
+    'openai_api_endpoint': apiEndpoint,
+    'openai_model': localStorage.getItem('openai_model'),
+    'openai_screenshot_model': selectedScreenshotModel,
+    'screenshot_detail_level': screenshotDetailLevel,
+    'enable_screenshot_analysis': enableScreenshotAnalysis.toString(),
+    'download_audio_files': downloadFiles.toString(),
+    'transcription_language': document.getElementById('languageSelect').value,
+    'enable_judge1_judge': enableJudge1,
+    'enable_judge2_judge': enableJudge2,
+    'enable_judge3_judge': enableJudge3,
+    'judge1_judge_prompt': judge1Prompt || DEFAULT_JUDGE_PROMPTS.judge1,
+    'judge2_judge_prompt': judge2Prompt || DEFAULT_JUDGE_PROMPTS.judge2,
+    'judge3_judge_prompt': judge3Prompt || DEFAULT_JUDGE_PROMPTS.judge3
+  };
+  
+  chrome.storage.local.set(settingsToStore, function() {
+    if (chrome.runtime.lastError) {
+      console.error('Error saving settings to chrome.storage.local:', chrome.runtime.lastError);
+    } else {
+      console.log('Settings also saved to chrome.storage.local for background script access');
+    }
+  });
+  
   showPopupMessage('Settings saved successfully!', 'success');
   console.log('Settings saved:', { 
     apiKey, 
     apiEndpoint, 
     downloadFiles, 
+    enableScreenshotAnalysis,
     model: localStorage.getItem('openai_model'),
     aiJudges: { enableJudge1, enableJudge2, enableJudge3 }
   });

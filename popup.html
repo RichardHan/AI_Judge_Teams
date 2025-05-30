@@ -80,6 +80,12 @@
       </div>
       <div class="setting-group">
         <label class="checkbox-label">
+          <input type="checkbox" id="enableScreenshotAnalysis" checked> Enable Screenshot Analysis
+        </label>
+        <div class="setting-description">Capture and analyze screenshots every 10 seconds during recording</div>
+      </div>
+      <div class="setting-group">
+        <label class="checkbox-label">
           <input type="checkbox" id="downloadFilesCheckbox"> 下載音訊檔案 (audio_capture資料夾)
         </label>
         <div class="setting-description">若啟用，每10秒的錄音將保存到Downloads/audio_capture資料夾</div>
@@ -115,6 +121,8 @@
       <div class="setting-group">
         <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
         <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+        <button id="testScreenshotBtn" class="btn btn-secondary">Test Screenshot</button>
+        <button id="testAudioBtn" class="btn btn-secondary">Test Audio</button>
       </div>
     </div>
     
