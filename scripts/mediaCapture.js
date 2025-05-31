@@ -167,9 +167,26 @@ class MediaCaptureManager {
       // 處理截圖
       const timestamp = new Date().toISOString();
       const screenshotManager = new ScreenshotManager();
-      await screenshotManager.processScreenshot(imageBlob, timestamp);
+      
+      // Get current team ID from background script state
+      const teamId = await this.getCurrentTeamId();
+      await screenshotManager.processScreenshot(imageBlob, timestamp, teamId);
     } catch (error) {
       console.error('截圖失敗:', error);
     }
+  }
+
+  // 獲取當前團隊ID
+  async getCurrentTeamId() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'getCaptureState' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error getting capture state:', chrome.runtime.lastError);
+          resolve(null);
+        } else {
+          resolve(response?.activeTeamId || null);
+        }
+      });
+    });
   }
 }

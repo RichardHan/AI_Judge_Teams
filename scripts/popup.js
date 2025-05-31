@@ -140,25 +140,43 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log(`[POPUP_SCRIPT] Added team option: ${team.name} (${team.id})`);
     });
     
-    // 如果有活躍的團隊ID，則選擇它
+    // 嘗試恢復保存的團隊選擇
+    const savedTeamId = localStorage.getItem('selected_team_id');
+    console.log('[POPUP_SCRIPT] Saved team ID from localStorage:', savedTeamId);
+    
+    // 優先順序：1. currentState.activeTeamId (來自background) 2. savedTeamId (持久化選擇) 3. 第一個團隊
+    let teamToSelect = null;
+    
     if (currentState.activeTeamId) {
       const teamExists = activeTeams.some(team => team.id === currentState.activeTeamId);
       if (teamExists) {
-        teamSelect.value = currentState.activeTeamId;
-        console.log(`[POPUP_SCRIPT] Selected active team: ${currentState.activeTeamId}`);
-      } else {
-        console.warn(`[POPUP_SCRIPT] Active team ID not found in teams list: ${currentState.activeTeamId}`);
-        if (activeTeams.length > 0) {
-          currentState.activeTeamId = activeTeams[0].id;
-          teamSelect.value = currentState.activeTeamId;
-          console.log(`[POPUP_SCRIPT] Defaulted to first team: ${currentState.activeTeamId}`);
-        }
+        teamToSelect = currentState.activeTeamId;
+        console.log(`[POPUP_SCRIPT] Using active team from background: ${currentState.activeTeamId}`);
       }
-    } else if (activeTeams.length > 0) {
-      // 如果沒有活躍團隊但有團隊可選，默認選第一個
-      currentState.activeTeamId = activeTeams[0].id;
-      teamSelect.value = currentState.activeTeamId;
-      console.log(`[POPUP_SCRIPT] No active team, defaulted to first team: ${currentState.activeTeamId}`);
+    }
+    
+    if (!teamToSelect && savedTeamId) {
+      const teamExists = activeTeams.some(team => team.id === savedTeamId);
+      if (teamExists) {
+        teamToSelect = savedTeamId;
+        currentState.activeTeamId = savedTeamId;
+        console.log(`[POPUP_SCRIPT] Restored saved team selection: ${savedTeamId}`);
+      } else {
+        console.warn(`[POPUP_SCRIPT] Saved team ID not found in teams list: ${savedTeamId}`);
+        // 清除無效的保存選擇
+        localStorage.removeItem('selected_team_id');
+      }
+    }
+    
+    if (!teamToSelect && activeTeams.length > 0) {
+      teamToSelect = activeTeams[0].id;
+      currentState.activeTeamId = teamToSelect;
+      console.log(`[POPUP_SCRIPT] No saved selection, defaulted to first team: ${teamToSelect}`);
+    }
+    
+    if (teamToSelect) {
+      teamSelect.value = teamToSelect;
+      console.log(`[POPUP_SCRIPT] Team dropdown set to: ${teamToSelect}`);
     }
   }
   
@@ -196,6 +214,9 @@ document.addEventListener('DOMContentLoaded', function() {
       function(response) {
         if (response.success) {
           currentState.activeTeamId = selectedTeamId;
+          // 保存選中的團隊ID到localStorage以便持久化
+          localStorage.setItem('selected_team_id', selectedTeamId);
+          console.log('[POPUP_SCRIPT] Team selection saved to localStorage:', selectedTeamId);
         } else {
           console.error('設置團隊失敗:', response.error);
           alert('設置團隊失敗: ' + response.error);
@@ -1226,4 +1247,4 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     model: localStorage.getItem('openai_model'),
     aiJudges: { enableJudge1, enableJudge2, enableJudge3 }
   });
-}); 
+});

@@ -158,6 +158,97 @@ class APIService {
       throw error;
     }
   }
+
+  async analyzeImage(imageBlob, detailLevel = 'medium') {
+    try {
+      // Ensure API service is initialized
+      if (!this.initialized) {
+        await this.initialize();
+      }
+
+      if (!this.settings.apiKey) {
+        throw new Error('No API key configured for image analysis');
+      }
+
+      // Convert blob to base64 data URL
+      const imageDataUrl = await this.blobToDataUrl(imageBlob);
+      
+      // Determine prompt based on detail level
+      let prompt;
+      switch (detailLevel) {
+        case 'low':
+          prompt = 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
+          break;
+        case 'high':
+          prompt = 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
+          break;
+        case 'medium':
+        default:
+          prompt = 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
+          break;
+      }
+
+      // Use vision-capable model (default to gpt-4o if current model doesn't support vision)
+      const visionModel = this.settings.model.includes('gpt-4') ? this.settings.model : 'gpt-4o';
+      
+      const endpoint = this.settings.apiEndpoint;
+      const response = await fetch(`${endpoint}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.settings.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: visionModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: prompt
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: imageDataUrl
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: detailLevel === 'high' ? 500 : (detailLevel === 'low' ? 100 : 300),
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Image analysis API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('Invalid response format from image analysis API');
+      }
+      
+      return data.choices[0].message.content;
+    } catch (error) {
+      console.error('Image analysis failed:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to convert blob to data URL
+  async blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
 }
 
 // Create and initialize the service

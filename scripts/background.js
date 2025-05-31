@@ -44,10 +44,36 @@ async function ensureOffscreenDocument() {
   });
 }
 
+// 載入保存的團隊選擇
+function loadSavedTeamSelection() {
+  chrome.storage.local.get(['selected_team_id'], (result) => {
+    if (chrome.runtime.lastError) {
+      console.error('[BACKGROUND_SCRIPT] Error loading saved team selection:', chrome.runtime.lastError);
+      return;
+    }
+    
+    const savedTeamId = result.selected_team_id;
+    if (savedTeamId) {
+      captureState.activeTeamId = savedTeamId;
+      console.log('[BACKGROUND_SCRIPT] Loaded saved team selection:', savedTeamId);
+    } else {
+      console.log('[BACKGROUND_SCRIPT] No saved team selection found');
+    }
+  });
+}
+
 // 初始化監聽器
 chrome.runtime.onInstalled.addListener(() => {
   console.log('AI Hackathon Judge 擴展已安裝');
   console.log('[BACKGROUND_SCRIPT] onInstalled listener triggered');
+  // 載入保存的團隊選擇
+  loadSavedTeamSelection();
+});
+
+// 當擴展啟動時也載入保存的團隊選擇
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[BACKGROUND_SCRIPT] Extension startup - loading saved team selection');
+  loadSavedTeamSelection();
 });
 
 // 訊息處理
@@ -198,6 +224,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         if (!captureState.isCapturing) {
           captureState.activeTeamId = message.teamId;
+          // 同時保存到chrome.storage.local以便持久化
+          chrome.storage.local.set({ 'selected_team_id': message.teamId }, () => {
+            if (chrome.runtime.lastError) {
+              console.error('[BACKGROUND_SCRIPT] Error saving team selection:', chrome.runtime.lastError);
+            } else {
+              console.log('[BACKGROUND_SCRIPT] Team selection saved to storage:', message.teamId);
+            }
+          });
           console.log('[BACKGROUND_SCRIPT] setActiveTeam: captureState.activeTeamId updated to:', captureState.activeTeamId);
           sendResponse({ success: true });
         } else {
@@ -252,13 +286,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('[BACKGROUND_SCRIPT] Action: testScreenshot');
       try {
         // Force capture a screenshot for testing
-        captureScreenshot().then(() => {
-          sendResponse({ success: true });
-        }).catch((error) => {
-          console.error('[BACKGROUND_SCRIPT] Test screenshot failed:', error);
-          sendResponse({ success: false, error: error.message });
-        });
-        return true; // Required for async response
+        // Note: captureScreenshot doesn't return a Promise, so we call it directly
+        captureScreenshot();
+        sendResponse({ success: true, message: 'Screenshot test initiated. Check console for results.' });
       } catch (error) {
         console.error('[BACKGROUND_SCRIPT] testScreenshot error:', error);
         sendResponse({ success: false, error: error.message });
@@ -472,9 +502,43 @@ function stopCapturing() {
   
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
   
+  // Save transcript to team via popup if we have transcript chunks
   if (captureState.transcriptChunks.length > 0 && !captureState.saveScheduled) {
     captureState.saveScheduled = true;
-    setTimeout(() => saveTranscriptToTeamInBackground(), 5000);
+    console.log('[BACKGROUND_SCRIPT] Scheduling transcript save to popup...');
+    
+    setTimeout(() => {
+      // Create full text from transcript chunks
+      const fullText = captureState.transcriptChunks
+        .filter(chunk => chunk.type === 'transcription' && chunk.text)
+        .map(chunk => chunk.text)
+        .join(' ');
+      
+      console.log('[BACKGROUND_SCRIPT] Sending saveTranscriptToTeam message to popup');
+      console.log('[BACKGROUND_SCRIPT] TeamId:', captureState.activeTeamId);
+      console.log('[BACKGROUND_SCRIPT] Transcript chunks count:', captureState.transcriptChunks.length);
+      console.log('[BACKGROUND_SCRIPT] Full text length:', fullText.length);
+      
+      // Send message to popup to save transcript
+      chrome.runtime.sendMessage({
+        action: 'saveTranscriptToTeam',
+        teamId: captureState.activeTeamId,
+        transcriptChunks: captureState.transcriptChunks,
+        fullText: fullText
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[BACKGROUND_SCRIPT] Error sending saveTranscriptToTeam message:', chrome.runtime.lastError.message);
+          // Fallback to our own save method
+          saveTranscriptToTeamInBackground();
+        } else {
+          console.log('[BACKGROUND_SCRIPT] saveTranscriptToTeam response:', response);
+          if (!response || !response.success) {
+            console.warn('[BACKGROUND_SCRIPT] Popup failed to save transcript, using fallback');
+            saveTranscriptToTeamInBackground();
+          }
+        }
+      });
+    }, 5000);
   }
   
   chrome.runtime.sendMessage({
@@ -547,8 +611,8 @@ function captureScreenshot() {
       return;
     }
     
-    // 獲取當前活躍的標籤頁
-    chrome.tabs.query({active: true}, (tabs) => {
+    // 獲取當前活躍的標籤頁 - 使用 currentWindow: true 來確保權限正確
+    chrome.tabs.query({active: true, currentWindow: true}, async (tabs) => {
       if (tabs.length === 0) {
         console.error('[BACKGROUND_SCRIPT] No active tab found for screenshot');
         return;
@@ -557,27 +621,76 @@ function captureScreenshot() {
       const activeTab = tabs[0];
       console.log('[BACKGROUND_SCRIPT] Found active tab for screenshot:', activeTab.id, activeTab.url);
       
-      // 捕獲可見標籤頁的截圖
-      chrome.tabs.captureVisibleTab(activeTab.windowId, {format: 'jpeg', quality: 85}, (dataUrl) => {
-        if (chrome.runtime.lastError) {
-          console.error('[BACKGROUND_SCRIPT] Screenshot capture failed:', chrome.runtime.lastError.message);
+      // 檢查標籤頁是否可以截圖
+      if (activeTab.url.startsWith('chrome://') || 
+          activeTab.url.startsWith('chrome-extension://') ||
+          activeTab.url.startsWith('file://') ||
+          activeTab.url.startsWith('about:')) {
+        console.warn('[BACKGROUND_SCRIPT] Cannot capture screenshot from Chrome system pages');
+        return;
+      }
+      
+      try {
+        // 首先檢查權限
+        const hasActiveTabPermission = await new Promise((resolve) => {
+          chrome.permissions.contains({
+            permissions: ['activeTab']
+          }, (result) => {
+            resolve(result);
+          });
+        });
+        
+        console.log('[BACKGROUND_SCRIPT] activeTab permission check:', hasActiveTabPermission);
+        
+        if (!hasActiveTabPermission) {
+          console.error('[BACKGROUND_SCRIPT] Missing activeTab permission for screenshot');
           return;
         }
         
-        console.log('[BACKGROUND_SCRIPT] Screenshot captured successfully');
+        // 使用當前窗口ID進行截圖捕獲
+        chrome.tabs.captureVisibleTab(activeTab.windowId, {
+          format: 'jpeg', 
+          quality: 85
+        }, (dataUrl) => {
+          if (chrome.runtime.lastError) {
+            console.error('[BACKGROUND_SCRIPT] Screenshot capture failed:', chrome.runtime.lastError.message);
+            
+            // 如果權限錯誤，嘗試發送截圖分析錯誤消息
+            if (chrome.runtime.lastError.message.includes('permission')) {
+              chrome.runtime.sendMessage({
+                action: 'screenshotAnalysisError',
+                error: 'Screenshot permission denied. Please ensure the extension has activeTab permission.'
+              }).catch(err => {
+                console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalysisError) - recipient may not be available:', err.message);
+              });
+            }
+            return;
+          }
+          
+          console.log('[BACKGROUND_SCRIPT] Screenshot captured successfully');
+          
+          // 與前一張截圖比較
+          if (captureState.lastScreenshotDataUrl === dataUrl) {
+            console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis.');
+            return;
+          }
+          
+          // 更新上一張截圖的 Data URL
+          captureState.lastScreenshotDataUrl = dataUrl;
+          
+          // 處理截圖
+          processScreenshot(dataUrl);
+        });
         
-        // 與前一張截圖比較
-        if (captureState.lastScreenshotDataUrl === dataUrl) {
-          console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis.');
-          return;
-        }
-        
-        // 更新上一張截圖的 Data URL
-        captureState.lastScreenshotDataUrl = dataUrl;
-        
-        // 處理截圖
-        processScreenshot(dataUrl);
-      });
+      } catch (permError) {
+        console.error('[BACKGROUND_SCRIPT] Error checking screenshot permissions:', permError);
+        chrome.runtime.sendMessage({
+          action: 'screenshotAnalysisError',
+          error: 'Failed to check screenshot permissions'
+        }).catch(err => {
+          console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalysisError) - recipient may not be available:', err.message);
+        });
+      }
     });
   }).catch(error => {
     console.error('[BACKGROUND_SCRIPT] Error getting screenshot setting:', error);
@@ -596,20 +709,25 @@ function processScreenshot(screenshotDataUrl) {
       saveScreenshotToFile(screenshotDataUrl, timestamp);
     }
     
-    // 從localStorage獲取截圖分析詳細程度設置
+    // 直接使用 analyzeScreenshotWithLLM 函數進行截圖分析
     getFromStorage('screenshot_detail_level').then(screenshotDetailLevel => {
-      const detailLevel = screenshotDetailLevel || 'medium'; // Default to medium
-      
-      // 發送截圖給LLM進行分析
+      const detailLevel = screenshotDetailLevel || 'medium';
+      console.log(`[BACKGROUND_SCRIPT] Starting screenshot analysis with detail level: ${detailLevel}`);
       analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel);
     }).catch(error => {
-      console.error('[BACKGROUND_SCRIPT] Error getting screenshot detail level:', error);
-      // Use default if error
+      console.error('[BACKGROUND_SCRIPT] Error getting screenshot detail level setting:', error);
+      // 如果無法獲取設置，使用默認的 medium 級別
       analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, 'medium');
     });
     
   } catch (error) {
     console.error('[BACKGROUND_SCRIPT] Screenshot processing failed:', error);
+    chrome.runtime.sendMessage({
+      action: 'screenshotAnalysisError',
+      error: `Screenshot processing failed: ${error.message}`
+    }).catch(err => {
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalysisError) - recipient may not be available:', err.message);
+    });
   }
 }
 
@@ -654,374 +772,302 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
     console.log(`[BACKGROUND_SCRIPT] Screenshot analysis settings - Model: ${model}, Endpoint: ${endpoint}`);
     
     if (!apiKey) {
-      console.error('[BACKGROUND_SCRIPT] No API key found for screenshot analysis');
-      chrome.runtime.sendMessage({
-        action: 'screenshotAnalysisError',
-        error: 'No API key configured for screenshot analysis'
-      });
+      console.warn('[BACKGROUND_SCRIPT] No OpenAI API key found, skipping screenshot analysis');
       return;
     }
     
-    if (!model) {
-      console.error('[BACKGROUND_SCRIPT] No screenshot model selected');
-      chrome.runtime.sendMessage({
-        action: 'screenshotAnalysisError',
-        error: 'No screenshot model selected in settings'
-      });
-      return;
+    // 根據詳細程度設置不同的提示詞
+    let prompt;
+    switch (detailLevel) {
+      case 'low':
+        prompt = 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
+        break;
+      case 'high':
+        prompt = 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
+        break;
+      case 'medium':
+      default:
+        prompt = 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
+        break;
     }
     
-    // 準備API請求
-    const baseApiUrl = endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
-    
-    let promptText = "Please analyze this screenshot from a Teams meeting or presentation. Provide a concise summary of what you see, including any visible text, UI elements, presentation content, or meeting activities. Focus on information that would be relevant for meeting notes or evaluation purposes.";
-
-    if (detailLevel === 'low') {
-      promptText = "Provide a very brief, one-sentence summary of this screenshot, focusing on the main subject.";
-    } else if (detailLevel === 'high') {
-      promptText = "Provide a highly detailed and comprehensive analysis of this screenshot. Describe all visible text, UI elements, buttons, icons, presentation content (including titles, bullet points, images, charts, graphs), any people visible, and infer the current meeting activity or context. Be as exhaustive as possible.";
-    }
-    
-    const requestBody = {
-      model: model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: promptText
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: screenshotDataUrl
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 500
-    };
-    
-    fetch(`${baseApiUrl}/chat/completions`, {
+    // 發送請求到OpenAI API
+    fetch(`${endpoint}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify(requestBody)
-    }).then(response => {
-      if (!response.ok) {
-        return response.text().then(errorText => {
-          console.error('[BACKGROUND_SCRIPT] Screenshot analysis API error:', response.status, errorText);
-          chrome.runtime.sendMessage({
-            action: 'screenshotAnalysisError',
-            error: `API error: ${response.status} - ${errorText}`
-          });
-        });
-      }
-      
-      return response.json().then(result => {
-        const analysis = result.choices?.[0]?.message?.content;
-        
-        if (analysis) {
-          console.log('[BACKGROUND_SCRIPT] Screenshot analysis completed:', analysis);
-          
-          // 再次檢查是否還應該接受分析結果
-          if (!captureState.acceptingTranscriptions) {
-            console.log('[BACKGROUND_SCRIPT] Recording stopped during screenshot analysis, ignoring result:', analysis);
-            return;
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: prompt
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: screenshotDataUrl
+                }
+              }
+            ]
           }
-          
-          // 創建截圖分析記錄
-          const screenshotAnalysis = {
-            timestamp: timestamp,
-            analysis: analysis,
-            type: 'screenshot'
-          };
-          
-          // 保存到轉錄片段中（作為特殊類型的記錄）
-          captureState.transcriptChunks.push(screenshotAnalysis);
-          
-          // 通知popup更新
-          chrome.runtime.sendMessage({
-            action: 'screenshotAnalyzed',
-            data: screenshotAnalysis
-          }).catch(err => {
-            console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalyzed) - recipient may not be available:', err.message);
-          });
-          
-          console.log('[BACKGROUND_SCRIPT] Screenshot analysis saved and notification sent');
-        } else {
-          console.warn('[BACKGROUND_SCRIPT] No analysis content received from LLM');
-          chrome.runtime.sendMessage({
-            action: 'screenshotAnalysisError',
-            error: 'No analysis content received from AI model'
-          });
-        }
-      });
-    }).catch(error => {
+        ],
+        max_tokens: detailLevel === 'high' ? 500 : (detailLevel === 'low' ? 100 : 300)
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.choices && data.choices[0] && data.choices[0].message) {
+        const analysis = data.choices[0].message.content;
+        console.log('[BACKGROUND_SCRIPT] Screenshot analysis completed:', analysis);
+        
+        // 處理分析結果
+        processScreenshotAnalysis(analysis, timestamp);
+      } else {
+        console.error('[BACKGROUND_SCRIPT] Invalid response from OpenAI API:', data);
+      }
+    })
+    .catch(error => {
       console.error('[BACKGROUND_SCRIPT] Screenshot analysis failed:', error);
-      chrome.runtime.sendMessage({
-        action: 'screenshotAnalysisError',
-        error: `Screenshot analysis failed: ${error.message}`
-      });
     });
+    
   }).catch(error => {
     console.error('[BACKGROUND_SCRIPT] Error getting screenshot analysis settings:', error);
-    chrome.runtime.sendMessage({
-      action: 'screenshotAnalysisError',
-      error: `Failed to get settings: ${error.message}`
-    }).catch(err => {
-      console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalysisError) - recipient may not be available:', err.message);
-    });
   });
 }
 
-// 輔助函數：從localStorage獲取數據
-function getFromStorage(key) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([key], (result) => {
-      if (chrome.runtime.lastError) {
-        console.error(`[BACKGROUND_SCRIPT] chrome.storage.local error for key '${key}':`, chrome.runtime.lastError);
-        resolve(null);
-      } else {
-        const value = result[key];
-        console.log(`[BACKGROUND_SCRIPT] getFromStorage('${key}'):`, value ? 'Found' : 'Not found');
-        resolve(value);
-      }
-    });
-  });
-}
-
-// 在背景處理音頻轉文字
-function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
-  console.log('[BACKGROUND_SCRIPT] Processing audio chunk in background:', timestamp);
-  console.log('[BACKGROUND_SCRIPT] Is final chunk:', isFinal ? 'Yes' : 'No');
-  console.log('[BACKGROUND_SCRIPT] acceptingTranscriptions:', captureState.acceptingTranscriptions);
+// 處理截圖分析結果
+function processScreenshotAnalysis(analysis, timestamp) {
+  console.log('[BACKGROUND_SCRIPT] Processing screenshot analysis result');
   
-  // 檢查是否還應該接受轉錄結果
+  // 檢查是否還在接受新的分析結果
   if (!captureState.acceptingTranscriptions) {
-    console.log('[BACKGROUND_SCRIPT] Not accepting transcriptions anymore, ignoring audio chunk from:', timestamp);
+    console.log('[BACKGROUND_SCRIPT] Not accepting transcriptions anymore, skipping screenshot analysis processing');
     return;
   }
   
-  // 並行獲取API設置
-  Promise.all([
-    getFromStorage('openai_api_key'),
-    getFromStorage('openai_api_endpoint'),
-    getFromStorage('transcription_language')
-  ]).then(([apiKey, apiEndpoint, selectedLanguage]) => {
+  // 創建分析結果對象
+  const analysisResult = {
+    type: 'screenshot_analysis',
+    timestamp: timestamp,
+    analysis: analysis,
+    teamId: captureState.activeTeamId
+  };
+  
+  // 將分析結果添加到轉錄片段中
+  captureState.transcriptChunks.push(analysisResult);
+  console.log('[BACKGROUND_SCRIPT] Screenshot analysis added to transcript chunks. Total chunks:', captureState.transcriptChunks.length);
+  
+  // 通知所有打開的 extension 頁面更新
+  chrome.runtime.sendMessage({
+    action: 'transcriptUpdated',
+    transcriptChunks: captureState.transcriptChunks
+  }).catch(err => {
+    console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
+  });
+}
+
+// 處理音頻片段的轉錄
+async function processAudioChunkInBackground(audioData, timestamp, isFinal = false) {
+  console.log('[BACKGROUND_SCRIPT] Processing audio chunk in background');
+  
+  // 檢查是否還在接受新的轉錄結果
+  if (!captureState.acceptingTranscriptions) {
+    console.log('[BACKGROUND_SCRIPT] Not accepting transcriptions anymore, skipping audio processing');
+    return;
+  }
+  
+  try {
+    // 將base64音頻數據轉換為Blob
+    const audioBlob = base64ToBlob(audioData, 'audio/webm');
+    console.log('[BACKGROUND_SCRIPT] Audio blob created, size:', audioBlob.size);
+    
+    // 如果啟用了下載檔案，保存音頻檔案
+    if (captureState.downloadFiles) {
+      const segmentType = isFinal ? 'final' : `segment_${captureState.segmentNumber}`;
+      saveAudioBlobToFile(audioBlob, segmentType);
+    }
+    
+    // 獲取轉錄設置
+    const transcriptionSettings = await Promise.all([
+      getFromStorage('openai_api_key'),
+      getFromStorage('openai_api_endpoint'),
+      getFromStorage('openai_transcription_model')
+    ]);
+    
+    const [apiKey, apiEndpoint, transcriptionModel] = transcriptionSettings;
     const endpoint = apiEndpoint || 'https://api.openai.com/v1';
-    const language = selectedLanguage || '';
+    const model = transcriptionModel || 'whisper-1';
     
     if (!apiKey) {
-      console.error('[BACKGROUND_SCRIPT] No API key found for transcription');
-      chrome.runtime.sendMessage({
-        action: 'transcriptionError',
-        error: 'No OpenAI API key configured'
-      }).catch(err => {
-        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-      });
+      console.warn('[BACKGROUND_SCRIPT] No OpenAI API key found, skipping transcription');
       return;
     }
     
-    // 建立音訊檔案
-    const audioBlob = base64ToBlob(audioBase64, 'audio/webm');
+    console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}`);
     
-    if (audioBlob.size < 100) {
-      console.error('[BACKGROUND_SCRIPT] Audio blob is too small, likely contains no audio data');
-      return;
-    }
-    
-    // 確保 API 端點不以斜槓結尾
-    const baseApiUrl = endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
-    console.log(`[BACKGROUND_SCRIPT] Using API endpoint for transcription: ${baseApiUrl}`);
-    
-    // 建立FormData
+    // 創建FormData進行轉錄
     const formData = new FormData();
     formData.append('file', audioBlob, 'audio.webm');
-    formData.append('model', 'whisper-1');
+    formData.append('model', model);
+    formData.append('language', 'zh'); // 可以根據需要調整語言
     
-    // 添加語言參數（如果用戶有選擇的話）
-    if (language) {
-      formData.append('language', language);
-      console.log(`[BACKGROUND_SCRIPT] Using language: ${language}`);
-    } else {
-      console.log('[BACKGROUND_SCRIPT] Using auto-detect language');
-    }
-    
-    // 調用API進行轉錄
-    fetch(`${baseApiUrl}/audio/transcriptions`, {
+    // 發送轉錄請求
+    const response = await fetch(`${endpoint}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`
       },
       body: formData
-    }).then(response => {
-      if (!response.ok) {
-        return response.text().then(errorText => {
-          console.error('[BACKGROUND_SCRIPT] Transcription API error:', response.status, errorText);
-          chrome.runtime.sendMessage({
-            action: 'transcriptionError',
-            error: `API error: ${response.status} - ${errorText}`
-          }).catch(err => {
-            console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-          });
-        });
-      }
-      
-      return response.json().then(result => {
-        // Check if transcription has content
-        if (!result.text || result.text.trim() === '') {
-          console.warn('[BACKGROUND_SCRIPT] Transcription returned empty text');
-          return;
-        }
-        
-        // 再次檢查是否還應該接受轉錄結果（防止在API請求期間停止了錄音）
-        if (!captureState.acceptingTranscriptions) {
-          console.log('[BACKGROUND_SCRIPT] Recording stopped during API request, ignoring transcription result:', result.text);
-          return;
-        }
-        
-        // 保存轉錄結果
-        const transcriptChunk = {
-          timestamp: timestamp,
-          text: result.text,
-          isFinal: isFinal || false
-        };
-        
-        // 保存到 background state
-        captureState.transcriptChunks.push(transcriptChunk);
-        console.log('[BACKGROUND_SCRIPT] Transcription completed and saved:', result.text);
-        
-        // 通知所有打開的 extension 頁面更新
-        chrome.runtime.sendMessage({
-          action: 'transcriptUpdated',
-          transcriptChunks: captureState.transcriptChunks
-        }).catch(err => {
-          // Ignore errors for broadcast messages (no specific recipient)
-          console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
-        });
-        
-        // 移除isFinal的自動保存邏輯，讓stopCapturing統一處理保存
-        // 這樣可以防止重複保存的問題
-        if (isFinal) {
-          console.log('[BACKGROUND_SCRIPT] Final chunk received, but save will be handled by stopCapturing to prevent duplicates');
-        }
-      });
-    }).catch(error => {
-      console.error('[BACKGROUND_SCRIPT] Audio processing failed:', error);
-      chrome.runtime.sendMessage({
-        action: 'transcriptionError',
-        error: `Audio processing failed: ${error.message}`
-      }).catch(err => {
-        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-      });
     });
-  }).catch(error => {
-    console.error('[BACKGROUND_SCRIPT] Error getting transcription settings:', error);
+    
+    if (!response.ok) {
+      throw new Error(`Transcription API request failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const transcriptionResult = await response.json();
+    console.log('[BACKGROUND_SCRIPT] Transcription completed:', transcriptionResult);
+    
+    if (transcriptionResult.text && transcriptionResult.text.trim()) {
+      // 創建轉錄結果對象
+      const transcriptChunk = {
+        type: 'transcription',
+        timestamp: timestamp,
+        text: transcriptionResult.text.trim(),
+        teamId: captureState.activeTeamId,
+        isFinal: isFinal
+      };
+      
+      // 將轉錄結果添加到片段中
+      captureState.transcriptChunks.push(transcriptChunk);
+      console.log('[BACKGROUND_SCRIPT] Transcription added to transcript chunks. Total chunks:', captureState.transcriptChunks.length);
+      
+      // 通知所有打開的 extension 頁面更新
+      chrome.runtime.sendMessage({
+        action: 'transcriptUpdated',
+        transcriptChunks: captureState.transcriptChunks
+      }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
+      });
+    } else {
+      console.log('[BACKGROUND_SCRIPT] No transcription text received or text is empty');
+    }
+    
+  } catch (error) {
+    console.error('[BACKGROUND_SCRIPT] Audio processing failed:', error);
+  }
+}
+
+// 將base64字符串轉換為Blob
+function base64ToBlob(base64Data, mimeType) {
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = new Array(byteCharacters.length);
+  
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}
+
+// 保存轉錄結果到團隊數據
+async function saveTranscriptToTeamInBackground() {
+  console.log('[BACKGROUND_SCRIPT] Saving transcript to team in background');
+  
+  if (!captureState.activeTeamId || captureState.transcriptChunks.length === 0) {
+    console.log('[BACKGROUND_SCRIPT] No active team or no transcript chunks to save');
+    return;
+  }
+  
+  try {
+    // 創建完整的轉錄記錄
+    const transcriptRecord = {
+      id: `transcript_${Date.now()}`,
+      teamId: captureState.activeTeamId,
+      timestamp: captureState.startTime || Date.now(),
+      chunks: captureState.transcriptChunks,
+      duration: captureState.startTime ? Date.now() - captureState.startTime : 0,
+      isFinal: true
+    };
+    
+    // 保存到本地存儲
+    const existingTranscripts = await getFromStorage('team_transcripts') || [];
+    existingTranscripts.push(transcriptRecord);
+    
+    // 只保留最近的50個轉錄記錄
+    if (existingTranscripts.length > 50) {
+      existingTranscripts.splice(0, existingTranscripts.length - 50);
+    }
+    
+    await setToStorage('team_transcripts', existingTranscripts);
+    console.log('[BACKGROUND_SCRIPT] Transcript saved to storage successfully');
+    
+    // 通知頁面轉錄已保存
     chrome.runtime.sendMessage({
-      action: 'transcriptionError',
-      error: `Failed to get settings: ${error.message}`
+      action: 'transcriptSaved',
+      transcript: transcriptRecord
     }).catch(err => {
-      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptSaved) - recipient may not be available:', err.message);
+    });
+    
+  } catch (error) {
+    console.error('[BACKGROUND_SCRIPT] Failed to save transcript:', error);
+  }
+}
+
+// 輔助函數：從存儲中獲取值
+function getFromStorage(key) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([key], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error(`[BACKGROUND_SCRIPT] Error getting ${key} from storage:`, chrome.runtime.lastError);
+        resolve(null);
+      } else {
+        resolve(result[key]);
+      }
     });
   });
 }
 
-// base64轉Blob (在background中使用)
-function base64ToBlob(base64, mimeType) {
-  const byteCharacters = atob(base64);
-  const byteArrays = [];
-  
-  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-    const slice = byteCharacters.slice(offset, offset + 512);
-    
-    const byteNumbers = new Array(slice.length);
-    for (let i = 0; i < slice.length; i++) {
-      byteNumbers[i] = slice.charCodeAt(i);
-    }
-    
-    const byteArray = new Uint8Array(byteNumbers);
-    byteArrays.push(byteArray);
-  }
-  
-  return new Blob(byteArrays, { type: mimeType });
+// 輔助函數：設置存儲值
+function setToStorage(key, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: value }, () => {
+      if (chrome.runtime.lastError) {
+        console.error(`[BACKGROUND_SCRIPT] Error setting ${key} to storage:`, chrome.runtime.lastError);
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    });
+  });
 }
 
-// 在背景中保存轉錄到團隊記錄
-function saveTranscriptToTeamInBackground() {
-  try {
-    console.log('[BACKGROUND_SCRIPT] saveTranscriptToTeamInBackground - Starting to save transcript');
-    console.log('[BACKGROUND_SCRIPT] Active team ID:', captureState.activeTeamId);
-    console.log('[BACKGROUND_SCRIPT] Transcript chunks length:', captureState.transcriptChunks.length);
-    console.log('[BACKGROUND_SCRIPT] Transcript chunks:', JSON.stringify(captureState.transcriptChunks, null, 2));
-    
-    if (!captureState.activeTeamId) {
-      console.warn('[BACKGROUND_SCRIPT] Cannot save transcript: no active team ID');
-      chrome.runtime.sendMessage({
-        action: 'transcriptionError',
-        error: 'Cannot save transcript: no active team selected'
-      }).catch(err => {
-        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-      });
-      return false;
-    }
-    
-    if (captureState.transcriptChunks.length === 0) {
-      console.warn('[BACKGROUND_SCRIPT] Cannot save transcript: empty chunks');
-      chrome.runtime.sendMessage({
-        action: 'transcriptionError',
-        error: 'Cannot save transcript: no transcription data available'
-      }).catch(err => {
-        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-      });
-      return false;
-    }
-    
-    const fullText = captureState.transcriptChunks.map(chunk => {
-      if (chunk.type === 'screenshot') {
-        return `[📸 ${chunk.analysis}]`;
+// 輔助函數：將dataURL轉換為Blob
+function dataURLToBlob(dataURL) {
+  return new Promise((resolve, reject) => {
+    try {
+      const arr = dataURL.split(',');
+      const mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
       }
-      return chunk.text || chunk.analysis || '';
-    }).join(' ');
-    
-    console.log('[BACKGROUND_SCRIPT] Full text to save:', fullText);
-    
-    // 通知前端保存轉錄記錄
-    const messageToSend = {
-      action: 'saveTranscriptToTeam',
-      teamId: captureState.activeTeamId,
-      transcriptChunks: captureState.transcriptChunks,
-      fullText: fullText
-    };
-    
-    console.log('[BACKGROUND_SCRIPT] Sending message to popup:', JSON.stringify(messageToSend, null, 2));
-    
-    chrome.runtime.sendMessage(messageToSend, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('[BACKGROUND_SCRIPT] Error sending save message:', chrome.runtime.lastError);
-      } else {
-        console.log('[BACKGROUND_SCRIPT] Save message sent successfully, response:', response);
-      }
-      // 重置保存標誌，準備下一次錄音
-      captureState.saveScheduled = false;
-      console.log('[BACKGROUND_SCRIPT] Reset saveScheduled flag after save attempt');
-    });
-    
-    console.log('[BACKGROUND_SCRIPT] Transcript save request sent to frontend');
-    return true;
-    
-  } catch (error) {
-    console.error('[BACKGROUND_SCRIPT] saveTranscriptToTeamInBackground error:', error);
-    chrome.runtime.sendMessage({
-      action: 'transcriptionError',
-      error: `Failed to save transcript: ${error.message}`
-    }).catch(err => {
-      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
-    });
-    return false;
-  }
+      
+      resolve(new Blob([u8arr], { type: mime }));
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
+
+console.log('[BACKGROUND_SCRIPT] background.js script loaded completely');
