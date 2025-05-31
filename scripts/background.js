@@ -22,6 +22,28 @@ let screenshotInterval = null; // 截圖間隔計時器
 let activeTabId = null;
 let recordingActiveTab = null; // Store the active tab ID we're recording from
 
+const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+
+// Function to ensure the offscreen document is active
+async function ensureOffscreenDocument() {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
+  });
+
+  if (existingContexts.length > 0) {
+    console.log('[BACKGROUND_SCRIPT] Offscreen document already exists.');
+    return;
+  }
+
+  console.log('[BACKGROUND_SCRIPT] Creating offscreen document.');
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    reasons: ['USER_MEDIA'],
+    justification: 'Audio capture and processing requires an offscreen document for MediaRecorder and getUserMedia access.'
+  });
+}
+
 // 初始化監聽器
 chrome.runtime.onInstalled.addListener(() => {
   console.log('AI Hackathon Judge 擴展已安裝');
@@ -32,6 +54,41 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Background received message:', message, 'from sender:', sender);
   
+  // Handle messages from offscreen document first
+  if (message.target === 'background') {
+    console.log('[BACKGROUND_SCRIPT] Received message from offscreen:', message);
+    if (message.action === 'offscreenCaptureStarted') {
+      console.log('[BACKGROUND_SCRIPT] Offscreen document confirmed capture started.');
+      sendResponse({ success: true });
+      return true;
+    } else if (message.action === 'offscreenCaptureError') {
+      console.error('[BACKGROUND_SCRIPT] Error reported from offscreen document:', message.error);
+      chrome.runtime.sendMessage({ action: 'audioCaptureError', error: `Offscreen: ${message.error}` }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (audioCaptureError) - recipient may not be available:', err.message);
+      });
+      stopCapturing(); // Stop if offscreen fails
+      sendResponse({ success: true });
+      return true;
+    } else if (message.action === 'audioRecordedOffscreen') {
+      console.log('[BACKGROUND_SCRIPT] Received recorded audio data from offscreen.');
+      console.log('  MIME Type:', message.mimeType);
+      console.log('  Timestamp:', message.timestamp);
+      console.log('  Audio Data (base64 preview):', message.audioData ? message.audioData.substring(0, 50) + '...' : 'No data');
+      // Call your transcription function here
+      if (message.audioData) {
+        processAudioChunkInBackground(message.audioData, message.timestamp, false);
+      }
+      sendResponse({ success: true });
+      return true;
+    } else {
+      // Handle any other offscreen messages
+      console.warn('[BACKGROUND_SCRIPT] Unknown offscreen message action:', message.action);
+      sendResponse({ success: false, error: 'Unknown offscreen action' });
+      return true;
+    }
+  }
+  
+  // Handle messages from popup/content scripts
   switch (message.action) {
     case 'getCaptureState':
       console.log('[BACKGROUND_SCRIPT] Action: getCaptureState. Current captureState:', JSON.stringify(captureState));
@@ -44,12 +101,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'startCapture':
       console.log('[BACKGROUND_SCRIPT] Action: startCapture. Received options:', JSON.stringify(message.options));
-      console.log('[BACKGROUND_SCRIPT] Checking MediaRecorder MIME type support:');
-      console.log(`  audio/webm: ${MediaRecorder.isTypeSupported('audio/webm')}`);
-      console.log(`  audio/opus: ${MediaRecorder.isTypeSupported('audio/opus')}`); // Opus is often used in webm
-      console.log(`  audio/ogg; codecs=opus: ${MediaRecorder.isTypeSupported('audio/ogg; codecs=opus')}`);
-      console.log(`  audio/mpeg: ${MediaRecorder.isTypeSupported('audio/mpeg')}`); // For MP3
-      console.log(`  audio/mp3: ${MediaRecorder.isTypeSupported('audio/mp3')}`);   // Also for MP3
+      // MediaRecorder is not available in Manifest V3 service workers, so we skip the MIME type checks
+      console.log('[BACKGROUND_SCRIPT] Starting capture process (MediaRecorder checks skipped in service worker)');
       try {
         // 如果已經在捕獲，先停止
         if (captureState.isCapturing) {
@@ -78,11 +131,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         transcribeInterval = setInterval(() => {
           if (captureState.isCapturing) {
             // 检查扩展是否仍然有效
-            if (!chrome.tabCapture || typeof chrome.tabCapture.capture !== 'function') {
+            if (!chrome.tabCapture || !chrome.tabCapture.getMediaStreamId) {
               console.error('[BACKGROUND_SCRIPT] Extension appears to be disabled during recording. Stopping audio capture.');
               chrome.runtime.sendMessage({
                 action: 'extensionDisabled',
                 error: 'Extension became disabled during recording. Audio transcription stopped.'
+              }).catch(err => {
+                console.log('[BACKGROUND_SCRIPT] Broadcast message (extensionDisabled) - recipient may not be available:', err.message);
               });
               // 清除音频相关的间隔，但保留截图功能
               if (transcribeInterval) {
@@ -92,18 +147,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               return;
             }
             
-            // Stop current recording if it exists
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-              console.log('[BACKGROUND_SCRIPT] Stopping current segment recording to start a new one');
-              mediaRecorder.stop();
-              
-              // Start a new capture immediately to reduce delay
-              // This will create overlap rather than gaps
-              captureNewSegment();
-            } else {
-              // If there's no active recording for some reason, start one
-              captureNewSegment();
-            }
+            // Instead of getting a new streamId, tell offscreen to restart recording with existing stream
+            console.log('[BACKGROUND_SCRIPT] Requesting offscreen to restart recording for new segment');
+            chrome.runtime.sendMessage({
+              action: 'restartOffscreenRecording',
+              target: 'offscreen'
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn('[BACKGROUND_SCRIPT] Error sending restartOffscreenRecording message:', chrome.runtime.lastError.message);
+              } else {
+                console.log('[BACKGROUND_SCRIPT] restartOffscreenRecording response:', response);
+              }
+            });
           }
         }, 10000);
         
@@ -169,6 +224,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           action: 'transcriptUpdated',
           transcriptChunks: captureState.transcriptChunks
+        }).catch(err => {
+          // Ignore errors for broadcast messages (no specific recipient)
+          console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
         });
         
         sendResponse({ success: true });
@@ -200,18 +258,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.error('[BACKGROUND_SCRIPT] Test screenshot failed:', error);
           sendResponse({ success: false, error: error.message });
         });
-        return true; // Will respond asynchronously
+        return true; // Required for async response
       } catch (error) {
         console.error('[BACKGROUND_SCRIPT] testScreenshot error:', error);
         sendResponse({ success: false, error: error.message });
       }
       break;
-
+      
     default:
+      console.warn('[BACKGROUND_SCRIPT] Unknown action:', message.action);
       sendResponse({ success: false, error: 'Unknown action' });
   }
   
-  // 為異步響應返回 true
+  // Return true to indicate we will send a response asynchronously if needed
   return true;
 });
 
@@ -219,170 +278,159 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function captureNewSegment() {
   console.log('[BACKGROUND_SCRIPT] Starting new segment capture');
   
-  // 检查扩展是否具有必要的权限和功能
-  if (!chrome.tabCapture || typeof chrome.tabCapture.capture !== 'function') {
-    console.error('[BACKGROUND_SCRIPT] Extension appears to be disabled or tabCapture API is not available');
-    // 通知用户扩展可能已被禁用
+  // Check if chrome.tabCapture API itself is available
+  if (!chrome || !chrome.tabCapture) {
+    console.error('[BACKGROUND_SCRIPT] chrome.tabCapture API is completely unavailable.');
     chrome.runtime.sendMessage({
       action: 'extensionDisabled',
-      error: 'Chrome extension appears to be disabled. Audio transcription will not work.'
+      error: 'Chrome tabCapture API is not available. Please reload extension or restart Chrome.'
     });
     return;
   }
-  
+
+  // Log available keys on chrome.tabCapture for debugging
+  console.log('[BACKGROUND_SCRIPT] chrome.tabCapture object exists. Available keys:', Object.keys(chrome.tabCapture));
+
+  // Proceed with getMediaStreamId flow
   // First check if we're still on the tab we want to record
-  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+  chrome.tabs.query({active: true, currentWindow: true}, async function(tabs) {
     if (tabs.length === 0) {
       console.error('[BACKGROUND_SCRIPT] No active tab found for recording');
+      chrome.runtime.sendMessage({
+        action: 'audioCaptureError',
+        error: 'No active tab found for recording'
+      });
       return;
     }
     
-    const currentActiveTab = tabs[0].id;
+    const currentActiveTab = tabs[0];
+    console.log('[BACKGROUND_SCRIPT] Current active tab info:', {
+      id: currentActiveTab.id,
+      url: currentActiveTab.url,
+      title: currentActiveTab.title,
+      audible: currentActiveTab.audible,
+      mutedInfo: currentActiveTab.mutedInfo
+    });
     
-    // If this is the first segment, set recordingActiveTab
-    if (!recordingActiveTab) {
-      recordingActiveTab = currentActiveTab;
-      console.log(`[BACKGROUND_SCRIPT] Recording from active tab with ID: ${recordingActiveTab}`);
-    } else if (currentActiveTab !== recordingActiveTab) {
-      console.warn(`[BACKGROUND_SCRIPT] WARNING: Active tab has changed from ${recordingActiveTab} to ${currentActiveTab}. Please return to the original tab for best results.`);
-      // We could send a notification to the popup here to alert the user
-    }
-    
-    // 啟動捕獲程序
-    console.log('[BACKGROUND_SCRIPT] Attempting to start capture. Checking chrome.tabCapture object:', chrome.tabCapture);
-    if (chrome.tabCapture && typeof chrome.tabCapture.capture === 'function') {
-      console.log('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS a function.');
-    } else {
-      console.error('[BACKGROUND_SCRIPT] chrome.tabCapture.capture IS NOT a function or chrome.tabCapture is undefined.');
+    // Check if the tab is eligible for capture
+    if (currentActiveTab.url.startsWith('chrome://') || 
+        currentActiveTab.url.startsWith('chrome-extension://') ||
+        currentActiveTab.url.startsWith('file://')) {
+      console.error('[BACKGROUND_SCRIPT] Cannot capture special Chrome pages (chrome://, extension pages, or local files)');
+      chrome.runtime.sendMessage({
+        action: 'audioCaptureError',
+        error: 'Cannot capture audio from Chrome system pages. Please switch to a regular website tab (like Teams).'
+      });
       return;
     }
     
-    // NOTE: chrome.tabCapture.capture can only capture the currently active tab
-    // It does not support specifying a tabId, so we removed that parameter
-    chrome.tabCapture.capture({ audio: true, video: false }, stream => {
-      if (!stream) {
-        console.error('[BACKGROUND_SCRIPT] Failed to capture tab audio for new segment');
-        // 通知用户音频捕获失败
+    // Check permissions explicitly
+    try {
+      const hasPermission = await new Promise((resolve) => {
+        chrome.permissions.contains({
+          permissions: ['tabCapture']
+        }, (result) => {
+          resolve(result);
+        });
+      });
+      
+      if (!hasPermission) {
+        console.error('[BACKGROUND_SCRIPT] tabCapture permission not granted');
         chrome.runtime.sendMessage({
           action: 'audioCaptureError',
-          error: 'Failed to capture audio. Please check if the extension is enabled and has proper permissions.'
+          error: 'Extension does not have permission to capture tab audio. Please check extension permissions in chrome://extensions/'
         });
         return;
       }
-      console.log('[BACKGROUND_SCRIPT] Tab capture successful for new segment, stream obtained.');
+      console.log('[BACKGROUND_SCRIPT] tabCapture permission confirmed');
       
-      console.log('[BACKGROUND_SCRIPT] Attempting to inspect audio tracks...');
-      const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        audioTracks.forEach((track, index) => {
-          console.log(`[BACKGROUND_SCRIPT] Audio Track ${index}: id=${track.id}, label='${track.label}', enabled=${track.enabled}, muted=${track.muted}, readyState='${track.readyState}'`);
-          // Log when track events occur DURING the recording
-          track.onended = () => console.error(`[BACKGROUND_SCRIPT] CRITICAL: Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has ENDED.`);
-          track.onmute = () => console.warn(`[BACKGROUND_SCRIPT] WARNING: Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has been MUTED.`);
-          track.onunmute = () => console.log(`[BACKGROUND_SCRIPT] Audio Track ${index} (ID: ${track.id}) for stream ${stream.id} has been UNMUTED.`);
-        });
-      } else {
-        console.warn('[BACKGROUND_SCRIPT] No audio tracks found in the captured stream!');
-      }
-      console.log('[BACKGROUND_SCRIPT] Finished inspecting audio tracks.');
-      
-      // 創建音頻上下文來重新路由音頻到揚聲器
-      try {
-        // Basic audio rerouting - always enabled for now to fix the core issue
-        const audioContext = new AudioContext();
-        const source = audioContext.createMediaStreamSource(stream);
-        
-        // 將音頻同時連接到揚聲器（用於播放）和保持原始流（用於錄製）
-        source.connect(audioContext.destination); // 這會將音頻輸出到揚聲器
-        
-        console.log('[BACKGROUND_SCRIPT] Audio rerouting to speakers successful');
-        
-        // 通知用戶音頻已重新路由
+    } catch (permError) {
+      console.error('[BACKGROUND_SCRIPT] Error checking permissions:', permError);
+    }
+    
+    // If this is the first segment, set recordingActiveTab
+    if (!recordingActiveTab) {
+      recordingActiveTab = currentActiveTab.id;
+      console.log(`[BACKGROUND_SCRIPT] Recording from active tab with ID: ${recordingActiveTab}`);
+    } else if (currentActiveTab.id !== recordingActiveTab) {
+      console.warn(`[BACKGROUND_SCRIPT] WARNING: Active tab has changed from ${recordingActiveTab} to ${currentActiveTab.id}. Please return to the original tab for best results.`);
+    }
+    
+    console.log('[BACKGROUND_SCRIPT] Attempting to start capture using getMediaStreamId flow.');
+
+    if (typeof chrome.tabCapture.getMediaStreamId !== 'function') {
+        console.error('[BACKGROUND_SCRIPT] chrome.tabCapture.getMediaStreamId IS NOT available or not a function.');
         chrome.runtime.sendMessage({
-          action: 'audioReroutingSuccess',
-          message: 'Audio is now being captured and played through speakers simultaneously'
+            action: 'audioCaptureError',
+            error: 'Critical error: tabCapture.getMediaStreamId API is not correctly loaded.'
         });
-      } catch (audioError) {
-        console.warn('[BACKGROUND_SCRIPT] Audio rerouting setup failed:', audioError);
-        // 如果音頻重新路由失敗，仍然繼續錄製，但通知用戶
-        chrome.runtime.sendMessage({
-          action: 'audioReroutingWarning',
-          message: 'Audio capture working but tab audio may be muted. This is normal.'
-        });
-      }
+        return;
+    }
+    console.log('[BACKGROUND_SCRIPT] chrome.tabCapture.getMediaStreamId IS available.');
+
+    try {
+      console.log('[BACKGROUND_SCRIPT] Calling chrome.tabCapture.getMediaStreamId for tab ID:', currentActiveTab.id);
       
-      // Store the new stream
-      if (captureStream) {
-        // Safely close the old stream before replacing it
-        captureStream.getTracks().forEach(track => track.stop());
-      }
-      captureStream = stream;
-      
-      // Reset audioChunks for the new segment
-      audioChunks = [];
-      
-      // Increment segment counter
-      captureState.segmentNumber++;
-      console.log(`[BACKGROUND_SCRIPT] Recording segment #${captureState.segmentNumber}`);
-      
-      // 設置音訊錄製
-      mediaRecorder = new MediaRecorder(stream);
-      
-      mediaRecorder.ondataavailable = e => {
-        console.log('[BACKGROUND_SCRIPT] ondataavailable triggered.');
-        if (e.data.size > 0) {
-          audioChunks.push(e.data);
-          console.log('收集音訊區塊:', audioChunks.length, e.data.size, 'bytes', 'Current audioChunks (sizes):', JSON.stringify(audioChunks.map(chunk => chunk.size)));
-        }
-      };
-      
-      mediaRecorder.onerror = (event) => {
-        console.error('[BACKGROUND_SCRIPT] MediaRecorder error:', event.error);
-      };
-      
-      mediaRecorder.onstop = () => {
-        console.log(`[BACKGROUND_SCRIPT] mediaRecorder.onstop event fired for segment #${captureState.segmentNumber}. Current audioChunks.length:`, audioChunks.length);
-        if (audioChunks.length > 0) {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-          const isFinal = !captureState.isCapturing; // If we're no longer capturing, this is the final segment
-          
-          // Save the segment
-          saveAudioBlobToFile(audioBlob, isFinal ? "final_segment" : "segment");
-          
-          // 把音訊 blob 轉成 base64 再傳送
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64data = reader.result.split(',')[1];
-            console.log(`[BACKGROUND_SCRIPT] Sending ${isFinal ? 'final ' : ''}audioChunk (from onstop) to popup.`);
-            console.log(`[BACKGROUND_SCRIPT] isFinal flag set to: ${isFinal}`);
-            
-            // Process audio chunk in background instead of sending to popup
-            processAudioChunkInBackground(base64data, new Date().toISOString(), isFinal);
-          };
-          reader.readAsDataURL(audioBlob);
-          
-          // Clear chunks after processing
-          audioChunks = [];
-        } else {
-          console.log('[BACKGROUND_SCRIPT] mediaRecorder.onstop: No audio chunks to process.');
-        }
-        
-        // Stop stream tracks when done to avoid resource leaks
-        if (captureStream && (!captureState.isCapturing || 
-            (mediaRecorder && mediaRecorder.state === 'inactive'))) {
-          captureStream.getTracks().forEach(track => {
-            if (track.readyState === 'live') {
-              track.stop();
-            }
+      chrome.tabCapture.getMediaStreamId({ targetTabId: currentActiveTab.id }, async (streamId) => {
+        if (chrome.runtime.lastError) {
+          console.error('[BACKGROUND_SCRIPT] Error getting media stream ID:', chrome.runtime.lastError.message);
+          chrome.runtime.sendMessage({
+            action: 'audioCaptureError',
+            error: `Failed to get media stream ID: ${chrome.runtime.lastError.message}`
           });
-          captureStream = null;
+          return;
         }
-      };
+
+        if (!streamId) {
+          console.error('[BACKGROUND_SCRIPT] No stream ID returned from getMediaStreamId.');
+          chrome.runtime.sendMessage({
+            action: 'audioCaptureError',
+            error: 'Failed to get a valid stream ID for tab capture.'
+          });
+          return;
+        }
+        
+        console.log('[BACKGROUND_SCRIPT] Obtained stream ID:', streamId);
+        
+        // Ensure offscreen document is running and then send the streamId
+        await ensureOffscreenDocument();
+        console.log('[BACKGROUND_SCRIPT] Sending streamId to offscreen document.');
+        chrome.runtime.sendMessage({
+          action: 'startOffscreenCapture',
+          target: 'offscreen', // To help offscreen.js identify the message
+          streamId: streamId,
+          mimeType: 'audio/webm' // Or get from settings
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[BACKGROUND_SCRIPT] Error sending startOffscreenCapture message:', chrome.runtime.lastError.message);
+          } else {
+            console.log('[BACKGROUND_SCRIPT] startOffscreenCapture response:', response);
+          }
+        });
+
+        // The rest of the stream handling (getUserMedia, MediaRecorder) will now happen in offscreen.js
+        // We can listen for messages back from offscreen.js if needed (e.g., capture started, error)
+
+        // For now, let's assume success at this point in background.js if streamId is sent
+        // We might want a confirmation message from offscreen.js later.
+        captureState.segmentNumber++;
+        console.log(`[BACKGROUND_SCRIPT] Recording segment #${captureState.segmentNumber} (offscreen capture initiated)`);
+        chrome.runtime.sendMessage({
+          action: 'captureStarted',
+          message: 'Audio capture initiated via offscreen document.'
+        }).catch(err => {
+          console.log('[BACKGROUND_SCRIPT] Broadcast message (captureStarted) - recipient may not be available:', err.message);
+        });
+
+      }); // End of getMediaStreamId callback
       
-      // Start recording
-      mediaRecorder.start();
-      console.log(`[BACKGROUND_SCRIPT] MediaRecorder started for segment #${captureState.segmentNumber}`);
-    });
+    } catch (error) {
+      console.error('[BACKGROUND_SCRIPT] Failed to initiate tab capture for new segment:', error);
+      chrome.runtime.sendMessage({
+        action: 'audioCaptureError',
+        error: `Failed to initiate tab capture: ${error.message}.`
+      });
+    }
   });
 }
 
@@ -390,61 +438,53 @@ function captureNewSegment() {
 function stopCapturing() {
   console.log('[BACKGROUND_SCRIPT] stopCapturing called.');
   
-  // Set state flags first so no new segments will start and no new transcriptions will be accepted
+  // Set state flags first
   captureState.isCapturing = false; 
-  captureState.acceptingTranscriptions = false; // 立即停止接受新的轉錄結果
-  console.log('[BACKGROUND_SCRIPT] Set acceptingTranscriptions to false - no more transcription results will be processed');
+  captureState.acceptingTranscriptions = false;
   
+  // Message offscreen to stop recording
+  chrome.runtime.sendMessage({
+    action: 'stopOffscreenRecording',
+    target: 'offscreen'
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn('[BACKGROUND_SCRIPT] Error sending stopOffscreenRecording message:', chrome.runtime.lastError.message);
+    } else {
+      console.log('[BACKGROUND_SCRIPT] stopOffscreenRecording response:', response);
+    }
+  });
+
+  // Clear intervals
   if (transcribeInterval) {
     clearInterval(transcribeInterval);
     transcribeInterval = null;
-    console.log('[BACKGROUND_SCRIPT] Transcribe interval cleared.');
   }
-  
   if (screenshotInterval) {
     clearInterval(screenshotInterval);
     screenshotInterval = null;
-    console.log('[BACKGROUND_SCRIPT] Screenshot interval cleared.');
   }
   
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop(); // This will trigger ondataavailable with any final data, then onstop
-    console.log('[BACKGROUND_SCRIPT] mediaRecorder.stop() called.');
-  }
-  
-  // Clean up stream even if mediaRecorder is not active or not exist
+  // Clean up local stream reference (if any was directly held, though it shouldn't be now)
   if (captureStream) {
     captureStream.getTracks().forEach(track => track.stop());
     captureStream = null;
-    console.log('[BACKGROUND_SCRIPT] Capture stream tracks stopped.');
   }
   
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
   
-  // Always try to save existing transcript data when stopping, regardless of whether there's a final audio segment
   if (captureState.transcriptChunks.length > 0 && !captureState.saveScheduled) {
-    console.log('[BACKGROUND_SCRIPT] Found existing transcript chunks, scheduling save operation');
-    captureState.saveScheduled = true; // 設置標誌防止重複保存
-    // 增加延遲時間，等待可能還在處理中的API請求完成
-    setTimeout(() => {
-      console.log('[BACKGROUND_SCRIPT] Executing delayed save operation after stopping');
-      saveTranscriptToTeamInBackground();
-    }, 5000); // 增加到5秒，給更多時間讓pending的API請求完成
-  } else {
-    if (captureState.transcriptChunks.length === 0) {
-      console.log('[BACKGROUND_SCRIPT] No transcript chunks found to save');
-    } else {
-      console.log('[BACKGROUND_SCRIPT] Save already scheduled, skipping duplicate save');
-    }
+    captureState.saveScheduled = true;
+    setTimeout(() => saveTranscriptToTeamInBackground(), 5000);
   }
   
-  // Notify all open extension pages of state change
   chrome.runtime.sendMessage({
     action: 'captureStateChanged',
     state: {
       isCapturing: captureState.isCapturing,
       activeTeamId: captureState.activeTeamId
     }
+  }).catch(err => {
+    console.log('[BACKGROUND_SCRIPT] Broadcast message (captureStateChanged) - recipient may not be available:', err.message);
   });
 }
 
@@ -508,13 +548,14 @@ function captureScreenshot() {
     }
     
     // 獲取當前活躍的標籤頁
-    chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+    chrome.tabs.query({active: true}, (tabs) => {
       if (tabs.length === 0) {
         console.error('[BACKGROUND_SCRIPT] No active tab found for screenshot');
         return;
       }
       
       const activeTab = tabs[0];
+      console.log('[BACKGROUND_SCRIPT] Found active tab for screenshot:', activeTab.id, activeTab.url);
       
       // 捕獲可見標籤頁的截圖
       chrome.tabs.captureVisibleTab(activeTab.windowId, {format: 'jpeg', quality: 85}, (dataUrl) => {
@@ -707,6 +748,8 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
           chrome.runtime.sendMessage({
             action: 'screenshotAnalyzed',
             data: screenshotAnalysis
+          }).catch(err => {
+            console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalyzed) - recipient may not be available:', err.message);
           });
           
           console.log('[BACKGROUND_SCRIPT] Screenshot analysis saved and notification sent');
@@ -730,6 +773,8 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
     chrome.runtime.sendMessage({
       action: 'screenshotAnalysisError',
       error: `Failed to get settings: ${error.message}`
+    }).catch(err => {
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotAnalysisError) - recipient may not be available:', err.message);
     });
   });
 }
@@ -776,6 +821,8 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
       chrome.runtime.sendMessage({
         action: 'transcriptionError',
         error: 'No OpenAI API key configured'
+      }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
       });
       return;
     }
@@ -819,6 +866,8 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
           chrome.runtime.sendMessage({
             action: 'transcriptionError',
             error: `API error: ${response.status} - ${errorText}`
+          }).catch(err => {
+            console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
           });
         });
       }
@@ -851,6 +900,9 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
         chrome.runtime.sendMessage({
           action: 'transcriptUpdated',
           transcriptChunks: captureState.transcriptChunks
+        }).catch(err => {
+          // Ignore errors for broadcast messages (no specific recipient)
+          console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
         });
         
         // 移除isFinal的自動保存邏輯，讓stopCapturing統一處理保存
@@ -864,6 +916,8 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
       chrome.runtime.sendMessage({
         action: 'transcriptionError',
         error: `Audio processing failed: ${error.message}`
+      }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
       });
     });
   }).catch(error => {
@@ -871,6 +925,8 @@ function processAudioChunkInBackground(audioBase64, timestamp, isFinal) {
     chrome.runtime.sendMessage({
       action: 'transcriptionError',
       error: `Failed to get settings: ${error.message}`
+    }).catch(err => {
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
     });
   });
 }
@@ -908,6 +964,8 @@ function saveTranscriptToTeamInBackground() {
       chrome.runtime.sendMessage({
         action: 'transcriptionError',
         error: 'Cannot save transcript: no active team selected'
+      }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
       });
       return false;
     }
@@ -917,6 +975,8 @@ function saveTranscriptToTeamInBackground() {
       chrome.runtime.sendMessage({
         action: 'transcriptionError',
         error: 'Cannot save transcript: no transcription data available'
+      }).catch(err => {
+        console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
       });
       return false;
     }
@@ -959,6 +1019,8 @@ function saveTranscriptToTeamInBackground() {
     chrome.runtime.sendMessage({
       action: 'transcriptionError',
       error: `Failed to save transcript: ${error.message}`
+    }).catch(err => {
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptionError) - recipient may not be available:', err.message);
     });
     return false;
   }

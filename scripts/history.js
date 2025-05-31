@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const detailContent = document.getElementById('detailContent');
   const backBtn = document.getElementById('backBtn');
   const aiJudgeBtn = document.getElementById('aiJudgeBtn');
+  const copyToClipboardBtn = document.getElementById('copyToClipboardBtn');
   const exportTxtBtn = document.getElementById('exportTxtBtn');
   const deleteTranscriptBtn = document.getElementById('deleteTranscriptBtn');
   
@@ -300,8 +301,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 顯示轉錄詳情面板
     transcriptDetail.style.display = 'flex';
     
-    // 啟用所有按鈕
+    // 啟用按鈕
     aiJudgeBtn.disabled = false;
+    copyToClipboardBtn.disabled = false;
     exportTxtBtn.disabled = false;
     deleteTranscriptBtn.disabled = false;
   }
@@ -313,9 +315,105 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 禁用所有按鈕
     aiJudgeBtn.disabled = true;
+    copyToClipboardBtn.disabled = true;
     exportTxtBtn.disabled = true;
     deleteTranscriptBtn.disabled = true;
   }
+  
+  // 複製到剪貼簿按鈕點擊事件
+  copyToClipboardBtn.addEventListener('click', async function() {
+    if (!selectedTeamId || !activeTranscriptId) return;
+    
+    const team = activeTeams.find(t => t.id === selectedTeamId);
+    if (!team) return;
+    
+    const transcript = team.transcripts.find(t => t.id === activeTranscriptId);
+    if (!transcript) return;
+    
+    try {
+      // 顯示載入狀態
+      copyToClipboardBtn.disabled = true;
+      copyToClipboardBtn.textContent = '📋 Copying...';
+      
+      const date = new Date(transcript.date);
+      const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+      
+      let content = '';
+      
+      // 添加標題
+      content += `${team.name} - ${formattedDate}\n\n`;
+      
+      if (transcript.chunks && transcript.chunks.length > 0) {
+        // 添加分段轉錄內容
+        transcript.chunks.forEach(chunk => {
+          const date = new Date(chunk.timestamp);
+          const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+          
+          if (chunk.type === 'screenshot') {
+            content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
+          } else {
+            content += `[${formattedTime}] ${chunk.text || chunk.analysis}\n\n`;
+          }
+        });
+      } else {
+        // 添加完整轉錄內容
+        content += transcript.text;
+      }
+      
+      // 使用 Clipboard API 複製到剪貼簿
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        
+        // 顯示成功狀態
+        copyToClipboardBtn.textContent = '✅ Copied!';
+        setTimeout(() => {
+          copyToClipboardBtn.textContent = '📋 Copy to Clipboard';
+          copyToClipboardBtn.disabled = false;
+        }, 2000);
+        
+        // 顯示成功提示
+        showMessage('Transcript copied to clipboard successfully!', 'success');
+        
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            copyToClipboardBtn.textContent = '✅ Copied!';
+            setTimeout(() => {
+              copyToClipboardBtn.textContent = '📋 Copy to Clipboard';
+              copyToClipboardBtn.disabled = false;
+            }, 2000);
+            showMessage('Transcript copied to clipboard successfully!', 'success');
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } catch (err) {
+          throw new Error('Fallback copy method failed');
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      copyToClipboardBtn.textContent = '❌ Copy Failed';
+      setTimeout(() => {
+        copyToClipboardBtn.textContent = '📋 Copy to Clipboard';
+        copyToClipboardBtn.disabled = false;
+      }, 2000);
+      showMessage('Failed to copy to clipboard: ' + error.message, 'error');
+    }
+  });
   
   // 匯出按鈕點擊事件
   exportTxtBtn.addEventListener('click', function() {
@@ -593,6 +691,65 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 顯示成功訊息
     console.log('AI Judge results exported successfully');
+  }
+  
+  // 顯示提示消息的函數
+  function showMessage(message, type = 'success') {
+    // 創建或獲取消息容器
+    let messageContainer = document.getElementById('messageContainer');
+    if (!messageContainer) {
+      messageContainer = document.createElement('div');
+      messageContainer.id = 'messageContainer';
+      messageContainer.style.position = 'fixed';
+      messageContainer.style.top = '20px';
+      messageContainer.style.right = '20px';
+      messageContainer.style.zIndex = '9999';
+      messageContainer.style.maxWidth = '300px';
+      document.body.appendChild(messageContainer);
+    }
+    
+    // 創建消息元素
+    const messageElement = document.createElement('div');
+    messageElement.className = `message ${type}`;
+    messageElement.style.padding = '12px 16px';
+    messageElement.style.marginBottom = '10px';
+    messageElement.style.borderRadius = '6px';
+    messageElement.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+    messageElement.style.fontSize = '14px';
+    messageElement.style.fontWeight = '500';
+    messageElement.style.opacity = '0';
+    messageElement.style.transform = 'translateX(100%)';
+    messageElement.style.transition = 'all 0.3s ease-in-out';
+    
+    if (type === 'success') {
+      messageElement.style.backgroundColor = '#d4edda';
+      messageElement.style.color = '#155724';
+      messageElement.style.border = '1px solid #c3e6cb';
+    } else if (type === 'error') {
+      messageElement.style.backgroundColor = '#f8d7da';
+      messageElement.style.color = '#721c24';
+      messageElement.style.border = '1px solid #f5c6cb';
+    }
+    
+    messageElement.textContent = message;
+    messageContainer.appendChild(messageElement);
+    
+    // 顯示動畫
+    setTimeout(() => {
+      messageElement.style.opacity = '1';
+      messageElement.style.transform = 'translateX(0)';
+    }, 100);
+    
+    // 自動隱藏
+    setTimeout(() => {
+      messageElement.style.opacity = '0';
+      messageElement.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (messageContainer.contains(messageElement)) {
+          messageContainer.removeChild(messageElement);
+        }
+      }, 300);
+    }, 3000);
   }
   
   // 初始化頁面

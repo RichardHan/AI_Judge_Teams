@@ -208,63 +208,99 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 開始捕獲按鈕點擊事件
   startBtn.addEventListener('click', function() {
-    console.log('[POPUP_SCRIPT] Start Recording button clicked.');
+    console.log('[POPUP_SCRIPT] StartBtn: Clicked. Current currentState:', JSON.stringify(currentState));
+    
     const selectedTeamId = teamSelect.value;
-    console.log('[POPUP_SCRIPT] StartBtn: selectedTeamId from teamSelect.value:', selectedTeamId);
     if (!selectedTeamId) {
-      alert('Please select or create a team first.');
-      console.warn('[POPUP_SCRIPT] No team selected.');
+      alert('Please select a team first');
       return;
     }
     
-    // 清空轉錄文本顯示
-    transcriptContainer.innerHTML = '';
-    transcriptChunks = [];
-    transcriptSaved = false; // 重置保存狀態
-    
-    // 通知 background script 清除轉錄記錄
-    chrome.runtime.sendMessage({ action: 'clearTranscripts' });
-    
-    // 檢查API金鑰
-    const apiKey = document.getElementById('apiKeyInput').value;
-    console.log('[POPUP_SCRIPT] Checking API Key. Found:', apiKey ? 'Yes' : 'No');
-    if (!apiKey) {
-      alert('Please enter your OpenAI API Key.');
-      console.warn('[POPUP_SCRIPT] OpenAI API Key is missing.');
-      return;
-    }
-    
-    // 儲存API金鑰
-    localStorage.setItem('openai_api_key', apiKey);
-    
-    // 獲取下載檔案設定
-    const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
-    console.log('[POPUP_SCRIPT] Download audio files setting:', downloadFiles);
-    
-    const messagePayload = {
-      action: 'startCapture',
-      options: {
-        teamId: selectedTeamId,
-        captureMode: captureMode,
-        downloadFiles: downloadFiles
+    // First check if we're on a compatible tab
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      if (tabs.length === 0) {
+        alert('No active tab found. Please make sure you have a tab open.');
+        return;
       }
-    };
-    console.log('[POPUP_SCRIPT] Sending startCapture message to background script with payload:', messagePayload);
-    chrome.runtime.sendMessage(
-      messagePayload,
-      function(response) {
-        console.log('[POPUP_SCRIPT] Received response from background script for startCapture:', response);
-        if (response && response.success) {
-          currentState.isCapturing = true;
-          currentState.activeTeamId = selectedTeamId;
-          updateUIState();
-          console.log('[POPUP_SCRIPT] StartBtn Callback: Capture started. currentState:', JSON.stringify(currentState), 'selectedTeamId was:', selectedTeamId);
-        } else {
-          console.error('開始捕獲失敗:', response ? response.error : 'No response or error field missing');
-          alert('Failed to start capture: ' + (response ? response.error : 'Unknown error'));
+      
+      const currentTab = tabs[0];
+      console.log('[POPUP_SCRIPT] Current tab info:', {
+        url: currentTab.url,
+        title: currentTab.title
+      });
+      
+      // Check if the current tab is compatible
+      if (currentTab.url.startsWith('chrome://') || 
+          currentTab.url.startsWith('chrome-extension://') ||
+          currentTab.url.startsWith('file://')) {
+        alert('Cannot capture audio from Chrome system pages.\n\nPlease:\n1. Open a regular website (like teams.microsoft.com)\n2. Make sure the page is playing audio or has microphone access\n3. Try starting capture again');
+        return;
+      }
+      
+      // Provide user guidance
+      if (!currentTab.url.includes('teams.microsoft.com')) {
+        const proceed = confirm(`You're currently on: ${currentTab.title}\n\nFor best results:\n• Use Microsoft Teams (teams.microsoft.com)\n• Join a meeting or call\n• Make sure audio is playing\n\nDo you want to continue with the current tab?`);
+        if (!proceed) {
+          return;
         }
       }
-    );
+      
+      // 檢查API Key
+      const apiKey = localStorage.getItem('openai_api_key');
+      if (!apiKey || apiKey.trim() === '') {
+        const userApiKey = prompt('Please enter your OpenAI API key for transcription:');
+        if (!userApiKey || userApiKey.trim() === '') {
+          alert('API key is required for transcription');
+          return;
+        }
+        // 儲存API金鑰
+        localStorage.setItem('openai_api_key', userApiKey.trim());
+      } else {
+        // 儲存API金鑰 (確保它已儲存)
+        localStorage.setItem('openai_api_key', apiKey);
+      }
+      
+      // 獲取下載檔案設定
+      const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
+      console.log('[POPUP_SCRIPT] Download audio files setting:', downloadFiles);
+      
+      const messagePayload = {
+        action: 'startCapture',
+        options: {
+          teamId: selectedTeamId,
+          captureMode: captureMode,
+          downloadFiles: downloadFiles
+        }
+      };
+      console.log('[POPUP_SCRIPT] Sending startCapture message to background script with payload:', messagePayload);
+      
+      showPopupMessage("Starting audio capture...", "success", 2000);
+      
+      chrome.runtime.sendMessage(
+        messagePayload,
+        function(response) {
+          console.log('[POPUP_SCRIPT] Received response from background script for startCapture:', response);
+          if (response && response.success) {
+            currentState.isCapturing = true;
+            currentState.activeTeamId = selectedTeamId;
+            updateUIState();
+            console.log('[POPUP_SCRIPT] StartBtn Callback: Capture started. currentState:', JSON.stringify(currentState), 'selectedTeamId was:', selectedTeamId);
+            showPopupMessage("Audio capture started successfully!", "success", 3000);
+          } else {
+            console.error('開始捕獲失敗:', response ? response.error : 'No response or error field missing');
+            const errorMsg = response ? response.error : 'Unknown error';
+            
+            // Provide helpful error messages
+            let userMsg = 'Failed to start capture: ' + errorMsg;
+            if (errorMsg.includes('tabCapture') || errorMsg.includes('Unknown error')) {
+              userMsg += '\n\nTroubleshooting:\n• Make sure you\'re on a regular website (not Chrome pages)\n• Try refreshing the page\n• Make sure the page has audio or microphone access\n• Check that the extension has proper permissions';
+            }
+            
+            alert(userMsg);
+          }
+        }
+      );
+    });
   });
   
   // 停止捕獲按鈕點擊事件
@@ -288,7 +324,13 @@ document.addEventListener('DOMContentLoaded', function() {
           transcriptChunks = [];
           transcriptContainer.innerHTML = '';
           transcriptSaved = false; // 重置保存狀態
-          chrome.runtime.sendMessage({ action: 'clearTranscripts' });
+          chrome.runtime.sendMessage({ action: 'clearTranscripts' }, function(response) {
+            if (chrome.runtime.lastError) {
+              console.warn('[POPUP_SCRIPT] Error sending clearTranscripts message:', chrome.runtime.lastError.message);
+            } else {
+              console.log('[POPUP_SCRIPT] clearTranscripts response:', response);
+            }
+          });
           console.log('[POPUP_SCRIPT] Cleared transcript content display after stopping');
           showPopupMessage("所有轉錄已處理完成並保存到團隊記錄", "success", 3000);
         }, 6000); // 比background的延遲稍長一點
@@ -417,6 +459,14 @@ document.addEventListener('DOMContentLoaded', function() {
         // 处理音频捕获错误
         console.error('[POPUP_SCRIPT] Audio capture error:', message.error);
         showPopupMessage("🎤 Audio capture failed - check extension permissions", "error", 6000);
+        // Also show the specific error message
+        if (message.error.includes('permission')) {
+          alert(`Permission Error: ${message.error}\n\nPlease:\n1. Go to chrome://extensions/\n2. Find this extension\n3. Make sure all permissions are enabled\n4. Try again`);
+        } else if (message.error.includes('no audio')) {
+          alert(`Audio Error: ${message.error}\n\nTips:\n• Try a website with audio (like YouTube)\n• Make sure the tab is not muted\n• Join a Teams meeting or call\n• Play some audio on the page first`);
+        } else {
+          alert(`Audio Capture Error: ${message.error}`);
+        }
         break;
         
       case 'screenshotAnalysisError':
@@ -457,6 +507,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 处理音频重新路由警告
         console.warn('[POPUP_SCRIPT] Audio rerouting warning:', message.message);
         showPopupMessage("⚠️ Audio capture active but tab audio may be muted (this is normal)", "error", 5000);
+        break;
+        
+      case 'captureStarted':
+        // Handle successful capture start
+        console.log('[POPUP_SCRIPT] Capture started successfully:', message.message);
+        showPopupMessage("🎙️ Audio capture started successfully!", "success", 3000);
         break;
     }
     

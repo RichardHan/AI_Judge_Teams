@@ -23,26 +23,27 @@
     </header>
     
     <div class="control-panel">
-      <div class="team-selector">
-        <select id="teamSelect" class="select-field">
-          <option value="" disabled selected>Select Team</option>
-        </select>
-        <button id="addTeamBtn" class="btn btn-small">+</button>
-      </div>
-      
-      <div class="buttons">
-        <button id="startBtn" class="btn btn-primary">Start Recording</button>
-        <div class="recording-controls">
-          <button id="stopBtn" class="btn btn-danger" disabled>Stop Recording</button>
-          <div class="language-selector">
-            <label for="languageSelect">Language:</label>
-            <select id="languageSelect" class="select-field language-select">
-              <option value="">Auto</option>
-              <option value="en">English</option>
-              <option value="zh">中文</option>
-              <option value="ja">日本語</option>
-            </select>
-          </div>
+      <div class="control-row">
+        <div class="team-section">
+          <select id="teamSelect" class="select-field-compact">
+            <option value="" disabled selected>Select Team</option>
+          </select>
+          <button id="addTeamBtn" class="btn btn-icon-small">+</button>
+        </div>
+        
+        <div class="recording-section">
+          <button id="startBtn" class="btn btn-primary-compact">Start Recording</button>
+          <button id="stopBtn" class="btn btn-danger-compact" disabled>Stop Recording</button>
+        </div>
+        
+        <div class="language-section">
+          <label for="languageSelect" class="label-compact">Language:</label>
+          <select id="languageSelect" class="select-field-compact">
+            <option value="">Auto</option>
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+            <option value="ja">日本語</option>
+          </select>
         </div>
       </div>
     </div>

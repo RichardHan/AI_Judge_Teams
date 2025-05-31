@@ -64,12 +64,111 @@ h2 {
 .control-panel {
   background-color: #fff;
   border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Compact Control Row */
+.control-row {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.team-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.recording-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.language-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* Compact Elements */
+.select-field-compact {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+  background-color: white;
+  min-width: 120px;
+}
+
+.btn-icon-small {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background-color: #f8f9fa;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  color: #666;
+}
+
+.btn-icon-small:hover {
+  background-color: #e9ecef;
+}
+
+.btn-primary-compact {
+  background-color: #007bff;
+  color: white;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-primary-compact:hover {
+  background-color: #0056b3;
+}
+
+.btn-danger-compact {
+  background-color: #d9534f;
+  color: white;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-danger-compact:hover:not(:disabled) {
+  background-color: #c9302c;
+}
+
+.btn-primary-compact:disabled,
+.btn-danger-compact:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.label-compact {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Team Selector */
@@ -329,27 +428,31 @@ h2 {
 .transcript-panel {
   background-color: #fff;
   border-radius: 8px;
-  padding: 15px;
-  flex: 1;
+  padding: 12px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex: 1;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-height: 500px;
-  overflow: hidden;
+  min-height: 0;
+}
+
+.transcript-panel h2 {
+  margin-bottom: 8px;
+  font-size: 15px;
+  color: #444;
 }
 
 .transcript-container {
   flex: 1;
-  overflow-y: auto;
   border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  padding: 15px;
-  background-color: #f9f9f9;
-  min-height: 250px;
-  max-height: 420px;
-  font-size: 14px;
-  width: 100%;
+  border-radius: 6px;
+  padding: 10px;
+  background-color: #fafafa;
+  overflow-y: auto;
+  max-height: 400px;
+  min-height: 200px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
 }
 
 /* Transcript Chunks */
@@ -543,3 +646,66 @@ h2 {
 /* 优化截图分析样式 - 更紧凑的布局 */
 .screenshot-line { display: flex; align-items: flex-start; gap: 6px; }
 .screenshot-chunk .chunk-time { background-color: #6f42c1; color: white; font-size: 12px; padding: 2px 6px; min-width: 60px; }
+
+/* Responsive Design for Compact Layout */
+@media (max-width: 650px) {
+  .control-row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  
+  .team-section {
+    order: 1;
+    flex: 1;
+    min-width: 180px;
+  }
+  
+  .language-section {
+    order: 2;
+    flex: 0 0 auto;
+  }
+  
+  .recording-section {
+    order: 3;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+  
+  .select-field-compact {
+    min-width: 100px;
+    font-size: 12px;
+  }
+  
+  .btn-primary-compact,
+  .btn-danger-compact {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .control-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  
+  .team-section,
+  .recording-section,
+  .language-section {
+    order: initial;
+    flex: none;
+    justify-content: space-between;
+  }
+  
+  .recording-section {
+    gap: 6px;
+  }
+  
+  .btn-primary-compact,
+  .btn-danger-compact {
+    flex: 1;
+  }
+}
