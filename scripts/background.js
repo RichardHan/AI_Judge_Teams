@@ -897,10 +897,11 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     const transcriptionSettings = await Promise.all([
       getFromStorage('openai_api_key'),
       getFromStorage('openai_api_endpoint'),
-      getFromStorage('openai_transcription_model')
+      getFromStorage('openai_transcription_model'),
+      getFromStorage('transcription_language')
     ]);
     
-    const [apiKey, apiEndpoint, transcriptionModel] = transcriptionSettings;
+    const [apiKey, apiEndpoint, transcriptionModel, language] = transcriptionSettings;
     const endpoint = apiEndpoint || 'https://api.openai.com/v1';
     const model = transcriptionModel || 'whisper-1';
     
@@ -909,13 +910,16 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
       return;
     }
     
-    console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}`);
+    console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}, Language: ${language || 'auto'}`);
     
     // 創建FormData進行轉錄
     const formData = new FormData();
     formData.append('file', audioBlob, 'audio.webm');
     formData.append('model', model);
-    formData.append('language', 'zh'); // 可以根據需要調整語言
+    // 只有在有指定語言時才添加language參數，空字串表示自動檢測
+    if (language && language.trim() !== '') {
+      formData.append('language', language);
+    }
     
     // 發送轉錄請求
     const response = await fetch(`${endpoint}/audio/transcriptions`, {
