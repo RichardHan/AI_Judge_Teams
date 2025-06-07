@@ -60,10 +60,45 @@
                placeholder="sk-..." autocomplete="off">
       </div>
       <div class="setting-group">
-        <label for="modelSelect">AI Judge Summary Model (Text):</label>
-        <select id="modelSelect" class="input-field">
-          <option value="">Please test connection first</option>
-        </select>
+        <h3>Meeting Note Helper Models</h3>
+        <div class="model-configurations">
+          <div class="model-config-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableModel1" checked>
+              <span>Model 1:</span>
+            </label>
+            <select id="modelSelect1" class="input-field model-select">
+              <option value="">Please test connection first</option>
+            </select>
+          </div>
+          <div class="model-config-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableModel2">
+              <span>Model 2:</span>
+            </label>
+            <select id="modelSelect2" class="input-field model-select">
+              <option value="">Please test connection first</option>
+            </select>
+          </div>
+          <div class="model-config-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableModel3">
+              <span>Model 3:</span>
+            </label>
+            <select id="modelSelect3" class="input-field model-select">
+              <option value="">Please test connection first</option>
+            </select>
+          </div>
+          <div class="model-config-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableModel4">
+              <span>Model 4:</span>
+            </label>
+            <select id="modelSelect4" class="input-field model-select">
+              <option value="">Please test connection first</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div class="setting-group">
         <label for="screenshotModelSelect">Screenshot Summary Model (Image to Text):</label>
@@ -99,28 +134,22 @@
       </div>
       
       <div class="setting-group">
-        <h3>AI Judge Settings</h3>
-        <div class="judge-settings">
-          <div class="judge-item">
-            <label>
-              <input type="checkbox" id="enableJudge1" checked> 
-              Judge 1
-            </label>
-            <textarea id="judge1Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
+        <h3>Meeting Note Helper Settings</h3>
+        <div class="prompt-settings">
+          <label for="userPromptTemplate">User Prompt Template:</label>
+          <div class="setting-description">
+            Use <code>{context}</code> as a placeholder for meeting transcripts and screenshot analysis
           </div>
-          <div class="judge-item">
-            <label>
-              <input type="checkbox" id="enableJudge2" checked> 
-              Judge 2 
-            </label>
-            <textarea id="judge2Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
-          </div>
-          <div class="judge-item">
-            <label>
-              <input type="checkbox" id="enableJudge3" checked> 
-              Judge 3
-            </label>
-            <textarea id="judge3Prompt" class="judge-prompt" placeholder="Judge prompt..."></textarea>
+          <textarea id="userPromptTemplate" class="user-prompt-template" 
+                    placeholder="Enter your custom prompt template here. Use {context} where you want the meeting content to be inserted.">
+          </textarea>
+          <div class="prompt-examples">
+            <small>
+              <strong>Example templates:</strong><br>
+              • Meeting Summary: "Please summarize the key points and action items from: {context}"<br>
+              • Technical Review: "Analyze the technical discussion and provide recommendations from: {context}"<br>
+              • Project Status: "Extract project updates and next steps from: {context}"
+            </small>
           </div>
         </div>
       </div>

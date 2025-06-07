@@ -647,6 +647,51 @@ h2 {
 .screenshot-line { display: flex; align-items: flex-start; gap: 6px; }
 .screenshot-chunk .chunk-time { background-color: #6f42c1; color: white; font-size: 12px; padding: 2px 6px; min-width: 60px; }
 
+/* Meeting Note Helper Textarea */
+.user-prompt-template {
+  width: 100%;
+  min-height: 150px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  resize: vertical;
+  background-color: white;
+  line-height: 1.5;
+}
+
+.user-prompt-template:focus {
+  border-color: #007bff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+}
+
+.prompt-settings {
+  margin-top: 10px;
+}
+
+.prompt-settings code {
+  background-color: #f4f4f4;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.prompt-examples {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.prompt-examples small {
+  color: #666;
+  line-height: 1.6;
+}
+
 /* Responsive Design for Compact Layout */
 @media (max-width: 650px) {
   .control-row {
@@ -708,4 +753,74 @@ h2 {
   .btn-danger-compact {
     flex: 1;
   }
+}
+
+/* Model Configuration Styles */
+.model-configurations {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.model-config-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.model-config-item:hover {
+  background-color: #e9ecef;
+}
+
+.model-config-item .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 80px;
+  margin-bottom: 0;
+}
+
+.model-config-item .model-select {
+  flex: 1;
+  margin: 0;
+}
+
+/* User Prompt Template */
+.user-prompt-template {
+  width: 100%;
+  min-height: 150px;
+  padding: 10px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  resize: vertical;
+  background-color: #f8f9fa;
+}
+
+.user-prompt-template:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.prompt-examples {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+}
+
+.prompt-examples code {
+  background-color: #e9ecef;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
 }

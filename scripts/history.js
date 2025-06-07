@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const detailTitle = document.getElementById('detailTitle');
   const detailContent = document.getElementById('detailContent');
   const backBtn = document.getElementById('backBtn');
-  const aiJudgeBtn = document.getElementById('aiJudgeBtn');
+  const processNotesBtn = document.getElementById('processNotesBtn');
   const copyToClipboardBtn = document.getElementById('copyToClipboardBtn');
   const exportTxtBtn = document.getElementById('exportTxtBtn');
   const deleteTranscriptBtn = document.getElementById('deleteTranscriptBtn');
@@ -130,8 +130,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.location.href = 'popup.html';
   });
   
-  // AI Judge 按鈕事件
-  aiJudgeBtn.addEventListener('click', async function() {
+  // Process Notes 按鈕事件
+  processNotesBtn.addEventListener('click', async function() {
     if (!selectedTeamId || !activeTranscriptId) return;
     
     const team = activeTeams.find(t => t.id === selectedTeamId);
@@ -141,17 +141,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!transcript) return;
     
     // 顯示載入狀態
-    aiJudgeBtn.disabled = true;
-    aiJudgeBtn.textContent = 'Judging...';
+    processNotesBtn.disabled = true;
+    processNotesBtn.textContent = '🔄 Processing...';
     
     try {
-      await performAIJudging(transcript);
+      await processNotesWithUserPrompt(transcript);
     } catch (error) {
-      console.error('AI Judging failed:', error);
-      alert('AI Judging failed: ' + error.message);
+      console.error('Notes processing failed:', error);
+      alert('Notes processing failed: ' + error.message);
     } finally {
-      aiJudgeBtn.disabled = false;
-      aiJudgeBtn.textContent = 'AI Judge';
+      processNotesBtn.disabled = false;
+      processNotesBtn.textContent = '📝 Process Notes';
     }
   });
   
@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', function() {
     transcriptDetail.style.display = 'flex';
     
     // 啟用按鈕
-    aiJudgeBtn.disabled = false;
+    processNotesBtn.disabled = false;
     copyToClipboardBtn.disabled = false;
     exportTxtBtn.disabled = false;
     deleteTranscriptBtn.disabled = false;
@@ -314,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function() {
     detailContent.innerHTML = '<div class="empty-state">Please select a meeting record</div>';
     
     // 禁用所有按鈕
-    aiJudgeBtn.disabled = true;
+    processNotesBtn.disabled = true;
     copyToClipboardBtn.disabled = true;
     exportTxtBtn.disabled = true;
     deleteTranscriptBtn.disabled = true;
@@ -338,10 +338,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const date = new Date(transcript.date);
       const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
       
-      let content = '';
+      let transcriptContent = '';
       
-      // 添加標題
-      content += `${team.name} - ${formattedDate}\n\n`;
+      // 建構轉錄內容
+      transcriptContent += `${team.name} - ${formattedDate}\n\n`;
       
       if (transcript.chunks && transcript.chunks.length > 0) {
         // 添加分段轉錄內容
@@ -350,14 +350,26 @@ document.addEventListener('DOMContentLoaded', function() {
           const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
           
           if (chunk.type === 'screenshot') {
-            content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
+            transcriptContent += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
           } else {
-            content += `[${formattedTime}] ${chunk.text || chunk.analysis}\n\n`;
+            transcriptContent += `[${formattedTime}] ${chunk.text || chunk.analysis}\n\n`;
           }
         });
       } else {
         // 添加完整轉錄內容
-        content += transcript.text;
+        transcriptContent += transcript.text;
+      }
+      
+      // 獲取用戶自定義的 prompt template
+      const userPromptTemplate = localStorage.getItem('user_prompt_template');
+      let content = '';
+      
+      if (userPromptTemplate && userPromptTemplate.trim()) {
+        // 如果有 prompt template，將轉錄內容替換到 {context} 中
+        content = userPromptTemplate.replace(/{context}/g, transcriptContent);
+      } else {
+        // 如果沒有 prompt template，只複製轉錄內容
+        content = transcriptContent;
       }
       
       // 使用 Clipboard API 複製到剪貼簿
@@ -499,8 +511,8 @@ document.addEventListener('DOMContentLoaded', function() {
     return text.substring(0, maxLength) + '...';
   }
   
-  // AI Judge 功能
-  async function performAIJudging(transcript) {
+  // Meeting Notes Processing 功能
+  async function processNotesWithUserPrompt(transcript) {
     const apiKey = localStorage.getItem('openai_api_key');
     const apiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
     
@@ -508,130 +520,152 @@ document.addEventListener('DOMContentLoaded', function() {
       throw new Error('OpenAI API Key not configured. Please set it in settings.');
     }
     
-    // 獲取 AI Judge 設置
-    const enableJudge1 = localStorage.getItem('enable_judge1_judge') !== 'false';
-    const enableJudge2 = localStorage.getItem('enable_judge2_judge') !== 'false';
-    const enableJudge3 = localStorage.getItem('enable_judge3_judge') !== 'false';
-    
-    const judges = [];
-    if (enableJudge1) {
-      judges.push({
-        name: 'Judge 1',
-        prompt: localStorage.getItem('judge1_judge_prompt')
-      });
-    }
-    if (enableJudge2) {
-      judges.push({
-        name: 'Judge 2',
-        prompt: localStorage.getItem('judge2_judge_prompt')
-      });
-    }
-    if (enableJudge3) {
-      judges.push({
-        name: 'Judge 3',
-        prompt: localStorage.getItem('judge3_judge_prompt')
-      });
+    // 獲取用戶自定義的 prompt template
+    const userPromptTemplate = localStorage.getItem('user_prompt_template');
+    if (!userPromptTemplate || !userPromptTemplate.trim()) {
+      throw new Error('No user prompt template configured. Please set it in settings.');
     }
     
-    if (judges.length === 0) {
-      throw new Error('No AI judges enabled. Please enable at least one judge in settings.');
-    }
-    
-    // 準備轉錄文本
+    // 準備轉錄文本 (context)
     const transcriptText = transcript.text || transcript.chunks?.map(chunk => {
-      if (chunk.type === 'screenshot') {
+      if (chunk.type === 'screenshot_analysis') {
+        return `[Screenshot Analysis: ${chunk.analysis}]`;
+      } else if (chunk.type === 'screenshot') {
         return `[Screenshot Analysis: ${chunk.analysis}]`;
       }
       return chunk.text || chunk.analysis || '';
-    }).join(' ') || '';
+    }).join('\n') || '';
     
     if (!transcriptText.trim()) {
-      throw new Error('No transcript content to judge.');
+      throw new Error('No transcript content to process.');
     }
     
-    // 並行調用所有啟用的 judges
-    const judgePromises = judges.map(judge => callAIJudge(judge, transcriptText, apiKey, apiEndpoint));
+    // 替換 {context} 為實際的轉錄內容
+    const finalPrompt = userPromptTemplate.replace(/{context}/g, transcriptText);
+    
+    // Get enabled models
+    const enabledModels = [];
+    for (let i = 1; i <= 4; i++) {
+      const enabled = localStorage.getItem(`enable_model${i}`) === 'true' || (i === 1 && localStorage.getItem(`enable_model${i}`) !== 'false');
+      const model = localStorage.getItem(`openai_model${i}`);
+      if (enabled && model) {
+        enabledModels.push({ id: i, model });
+      }
+    }
+    
+    if (enabledModels.length === 0) {
+      throw new Error('No models enabled. Please enable at least one model in settings.');
+    }
     
     try {
-      const results = await Promise.all(judgePromises);
-      displayJudgeResults(results);
+      // Process with all enabled models in parallel
+      const promises = enabledModels.map(({ id, model }) => 
+        callNotesProcessor(finalPrompt, apiKey, apiEndpoint, model, id)
+      );
+      
+      const results = await Promise.allSettled(promises);
+      displayProcessedNotesMultiple(results, enabledModels);
     } catch (error) {
-      throw new Error(`AI Judge API call failed: ${error.message}`);
+      throw new Error(`Notes processing API call failed: ${error.message}`);
     }
   }
   
-  // 調用單個 AI Judge
-  async function callAIJudge(judge, transcriptText, apiKey, apiEndpoint) {
-    const response = await fetch(`${apiEndpoint}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: localStorage.getItem('openai_model') || 'gpt-4.1-nano',
-        messages: [
-          {
-            role: 'system',
-            content: judge.prompt
-          },
-          {
-            role: 'user',
-            content: `Meeting Transcript:\n\n${transcriptText}`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1500
-      })
+  // 調用 Notes Processor
+  async function callNotesProcessor(finalPrompt, apiKey, apiEndpoint, model, modelId) {
+    try {
+      const response = await fetch(`${apiEndpoint}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            {
+              role: 'user',
+              content: finalPrompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(`${errorData.error?.message || errorData.message || 'Unknown error'}`);
+      }
+      
+      const data = await response.json();
+      return {
+        modelId,
+        model,
+        content: data.choices[0]?.message?.content || 'No processed notes received'
+      };
+    } catch (error) {
+      throw new Error(`Model ${model}: ${error.message}`);
+    }
+  }
+  
+  // 顯示處理後的筆記結果（多模型）
+  function displayProcessedNotesMultiple(results, enabledModels) {
+    // 保存原始的轉錄內容
+    const originalContent = detailContent.innerHTML;
+    
+    // 構建多模型結果的 HTML
+    let resultsHtml = '';
+    results.forEach((result, index) => {
+      const modelInfo = enabledModels[index];
+      if (result.status === 'fulfilled') {
+        resultsHtml += `
+          <div class="model-result">
+            <h3>Model ${modelInfo.id}: ${modelInfo.model}</h3>
+            <div class="model-result-content">
+              ${result.value.content.replace(/\n/g, '<br>')}
+            </div>
+          </div>
+        `;
+      } else {
+        resultsHtml += `
+          <div class="model-result model-error">
+            <h3>Model ${modelInfo.id}: ${modelInfo.model}</h3>
+            <div class="model-result-error">
+              Error: ${result.reason.message}
+            </div>
+          </div>
+        `;
+      }
     });
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(`${judge.name}: ${errorData.error?.message || errorData.message || 'Unknown error'}`);
-    }
-    
-    const data = await response.json();
-    return {
-      judge: judge.name,
-      evaluation: data.choices[0]?.message?.content || 'No evaluation received'
-    };
-  }
-  
-  // 顯示 Judge 結果
-  function displayJudgeResults(results) {
-    const judgeResultsHtml = results.map(result => `
-      <div class="judge-result">
-        <h3 class="judge-name">${result.judge}</h3>
-        <div class="judge-evaluation">${result.evaluation.replace(/\n/g, '<br>')}</div>
-      </div>
-    `).join('');
-    
-    // 在詳情內容前面插入 Judge 結果
+    // 在詳情內容前面插入處理後的筆記
     detailContent.innerHTML = `
-      <div class="ai-judge-results">
-        <div class="judge-header">
-          <h2>AI Judge Evaluations</h2>
-          <button id="exportJudgeBtn" class="btn btn-action btn-sm">Export AI Judge Results</button>
+      <div class="processed-notes-results">
+        <div class="notes-header">
+          <h2>📝 Processed Meeting Notes</h2>
+          <button id="exportNotesBtn" class="btn btn-action btn-sm">📁 Export All Notes</button>
         </div>
-        ${judgeResultsHtml}
+        <div class="processed-notes-container">
+          ${resultsHtml}
+        </div>
         <hr style="margin: 20px 0; border: 1px solid #e0e0e0;">
         <h2>Original Transcript</h2>
       </div>
-    ` + detailContent.innerHTML;
+    ` + originalContent;
     
     // 為新的export按鈕添加事件監聽器
-    const exportJudgeBtn = document.getElementById('exportJudgeBtn');
-    if (exportJudgeBtn) {
-      exportJudgeBtn.addEventListener('click', function() {
-        exportAIJudgeResults(results);
+    const exportNotesBtn = document.getElementById('exportNotesBtn');
+    if (exportNotesBtn) {
+      exportNotesBtn.addEventListener('click', function() {
+        exportProcessedNotesMultiple(results, enabledModels);
       });
     }
   }
   
-  // 匯出AI Judge結果
-  function exportAIJudgeResults(results) {
+  // 匯出處理後的筆記結果（多模型）
+  function exportProcessedNotesMultiple(results, enabledModels) {
     if (!selectedTeamId || !activeTranscriptId || !results || results.length === 0) {
-      alert('No AI Judge results to export.');
+      alert('No processed notes to export.');
       return;
     }
     
@@ -648,49 +682,54 @@ document.addEventListener('DOMContentLoaded', function() {
     let content = '';
     
     // 添加標題
-    content += `AI Judge Evaluation Results\n`;
+    content += `Meeting Notes Summary\n`;
     content += `Team: ${team.name}\n`;
     content += `Date: ${formattedDate} ${formattedTime}\n`;
     content += `Generated: ${new Date().toLocaleString()}\n`;
     content += `${'='.repeat(60)}\n\n`;
     
-    // 添加每個Judge的評估結果
+    // 添加處理後的筆記內容（多模型）
     results.forEach((result, index) => {
-      content += `${index + 1}. ${result.judge}\n`;
-      content += `${'-'.repeat(result.judge.length + 3)}\n`;
-      content += `${result.evaluation}\n\n`;
+      const modelInfo = enabledModels[index];
+      content += `\n[Model ${modelInfo.id}: ${modelInfo.model}]\n`;
+      content += `${'-'.repeat(40)}\n`;
       
-      if (index < results.length - 1) {
-        content += `${'='.repeat(60)}\n\n`;
+      if (result.status === 'fulfilled') {
+        content += result.value.content;
+      } else {
+        content += `Error: ${result.reason.message}`;
       }
+      
+      content += `\n\n`;
     });
     
-    // 添加原始轉錄摘要
+    content += `${'='.repeat(60)}\n`;
+    
+    // 添加原始轉錄摘要（可選）
     const transcriptText = transcript.text || transcript.chunks?.map(chunk => {
       if (chunk.type === 'screenshot') {
         return `[Screenshot Analysis: ${chunk.analysis}]`;
       }
       return chunk.text || chunk.analysis || '';
-    }).join(' ') || '';
-    const transcriptPreview = transcriptText.length > 200 ? 
-      transcriptText.substring(0, 200) + '...' : transcriptText;
+    }).join('\n') || '';
+    const transcriptPreview = transcriptText.length > 500 ? 
+      transcriptText.substring(0, 500) + '...\n[Full transcript available in original meeting record]' : transcriptText;
     
-    content += `${'='.repeat(60)}\n`;
-    content += `Original Transcript Preview:\n`;
+    content += `\nOriginal Transcript Preview:\n`;
     content += `${'-'.repeat(28)}\n`;
-    content += `${transcriptPreview}\n`;
+    content += `${transcriptPreview}`;
     
     // 創建Blob並下載
     const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `AI_Judge_Results_${team.name}_${formattedDate}.txt`;
+    a.download = `Meeting_Notes_${team.name}_${formattedDate}.txt`;
     a.click();
     URL.revokeObjectURL(url);
     
     // 顯示成功訊息
-    console.log('AI Judge results exported successfully');
+    console.log('Processed notes exported successfully');
   }
   
   // 顯示提示消息的函數

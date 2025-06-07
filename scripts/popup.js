@@ -772,53 +772,41 @@ function showPopupMessage(message, type = 'success', duration = 3000) {
   }, duration);
 }
 
-// Default AI Judge prompts
-const DEFAULT_JUDGE_PROMPTS = {
-  judge1: `You are Judge 1, a business-focused evaluator with expertise in strategic thinking and scaling technology solutions globally. You value innovation that creates real market impact.
- 
- Your Focus:
- - Business potential and scalability
- - Customer problem-solving effectiveness  
- - Market differentiation opportunity
- - Long-term viability
- 
- Scoring (1-100):
- - Practicality (30%): Can this be implemented and maintained in real operations?
- - Technical Implementation (30%): Is the solution well-architected and innovative?
- - Business Value & Impact (40%): What's the potential ROI and market impact?
- 
- Evaluation Style: Challenge teams on business model, market strategy, and global scaling potential.`,
- 
-  judge2: `You are Judge 2, a technical expert with deep engineering experience. You focus on code quality, system architecture, and engineering excellence.
- 
- Your Focus:
- - Technical depth and implementation quality
- - Code architecture and best practices
- - Innovation in technical approach
- - Production readiness
- 
- Scoring (1-100):
- - Practicality (30%): Is this technically feasible for production deployment?
- - Technical Implementation (30%): Code quality, security, and scalability considerations
- - Business Value & Impact (40%): Development efficiency and operational benefits
- 
- Evaluation Style: Deep dive into technical architecture, performance, and engineering fundamentals.`,
- 
-  judge3: `You are Judge 3, a product strategist with experience across development, sales, and marketing. You focus on user experience and platform integration.
- 
- Your Focus:
- - Product-market fit
- - User experience and usability
- - Platform integration potential
- - Customer-centric design
- 
- Scoring (1-100):
- - Practicality (30%): How well does this integrate with existing systems and workflows?
- - Technical Implementation (30%): Clean design, modularity, and forward-thinking architecture
- - Business Value & Impact (40%): Customer success potential and ecosystem value
- 
- Evaluation Style: Focus on customer personas, use cases, and platform ecosystem benefits.`
- };
+// Default User Prompt Template for Meeting Notes
+const DEFAULT_USER_PROMPT_TEMPLATE = `You are an expert meeting assistant. Please analyze the meeting content below and provide a comprehensive summary.
+
+**Instructions:**
+1. **Key Points**: Extract and summarize the main topics discussed
+2. **Action Items**: List specific tasks mentioned with responsible persons (if identified)
+3. **Decisions Made**: Highlight any decisions or agreements reached
+4. **Next Steps**: Identify follow-up actions and deadlines
+5. **Important Details**: Note any significant technical details, numbers, or references
+
+**Meeting Content:**
+{context}
+
+**Please format your response as:**
+## Meeting Summary
+
+### Key Discussion Points
+- [Point 1]
+- [Point 2]
+- ...
+
+### Action Items
+- [ ] [Task] - [Person/Team] - [Deadline if mentioned]
+- [ ] [Task] - [Person/Team] - [Deadline if mentioned]
+
+### Decisions Made
+- [Decision 1]
+- [Decision 2]
+
+### Next Steps
+- [Next step 1]
+- [Next step 2]
+
+### Additional Notes
+[Any other important information]`;
 
 // Function to load saved settings
 function loadSettings() {
@@ -830,13 +818,14 @@ function loadSettings() {
   const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false'; // Default to true
   const enableAudioRerouting = localStorage.getItem('enable_audio_rerouting') !== 'false'; // Default to true
   
-  // Load AI Judge settings
-  const enableJudge1 = localStorage.getItem('enable_judge1_judge') !== 'false';
-  const enableJudge2 = localStorage.getItem('enable_judge2_judge') !== 'false';
-  const enableJudge3 = localStorage.getItem('enable_judge3_judge') !== 'false';
-  const judge1Prompt = localStorage.getItem('judge1_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge1;
-  const judge2Prompt = localStorage.getItem('judge2_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge2;
-  const judge3Prompt = localStorage.getItem('judge3_judge_prompt') || DEFAULT_JUDGE_PROMPTS.judge3;
+  // Load User Prompt Template setting
+  const userPromptTemplate = localStorage.getItem('user_prompt_template') || DEFAULT_USER_PROMPT_TEMPLATE;
+  
+  // Load model enable states (default: only model 1 enabled)
+  const enableModel1 = localStorage.getItem('enable_model1') !== 'false'; // Default to true
+  const enableModel2 = localStorage.getItem('enable_model2') === 'true'; // Default to false
+  const enableModel3 = localStorage.getItem('enable_model3') === 'true'; // Default to false
+  const enableModel4 = localStorage.getItem('enable_model4') === 'true'; // Default to false
 
   document.getElementById('apiKeyInput').value = savedApiKey;
   document.getElementById('apiEndpointInput').value = savedApiEndpoint;
@@ -846,13 +835,14 @@ function loadSettings() {
   document.getElementById('enableScreenshotAnalysis').checked = enableScreenshotAnalysis;
   document.getElementById('enableAudioRerouting').checked = enableAudioRerouting;
   
-  // Set AI Judge settings
-  document.getElementById('enableJudge1').checked = enableJudge1;
-  document.getElementById('enableJudge2').checked = enableJudge2;
-  document.getElementById('enableJudge3').checked = enableJudge3;
-  document.getElementById('judge1Prompt').value = judge1Prompt;
-  document.getElementById('judge2Prompt').value = judge2Prompt;
-  document.getElementById('judge3Prompt').value = judge3Prompt;
+  // Set model enable checkboxes
+  document.getElementById('enableModel1').checked = enableModel1;
+  document.getElementById('enableModel2').checked = enableModel2;
+  document.getElementById('enableModel3').checked = enableModel3;
+  document.getElementById('enableModel4').checked = enableModel4;
+  
+  // Set User Prompt Template
+  document.getElementById('userPromptTemplate').value = userPromptTemplate;
   
   // If there's a saved API key, try to load models
   if (savedApiKey && savedApiEndpoint) {
@@ -864,7 +854,12 @@ function loadSettings() {
 async function testAPIConnection(showMessage = true) {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const apiEndpointInput = document.getElementById('apiEndpointInput');
-  const modelSelect = document.getElementById('modelSelect');
+  const modelSelects = [
+    document.getElementById('modelSelect1'),
+    document.getElementById('modelSelect2'),
+    document.getElementById('modelSelect3'),
+    document.getElementById('modelSelect4')
+  ];
   const screenshotModelSelect = document.getElementById('screenshotModelSelect');
   
   const apiKey = apiKeyInput.value.trim();
@@ -876,9 +871,11 @@ async function testAPIConnection(showMessage = true) {
     return false;
   }
   
-  modelSelect.innerHTML = '<option value="">Testing connection...</option>';
+  modelSelects.forEach(select => {
+    select.innerHTML = '<option value="">Testing connection...</option>';
+    select.disabled = true;
+  });
   screenshotModelSelect.innerHTML = '<option value="">Testing connection...</option>';
-  modelSelect.disabled = true;
   screenshotModelSelect.disabled = true;
   
   try {
@@ -897,7 +894,9 @@ async function testAPIConnection(showMessage = true) {
     const data = await response.json();
     const models = data.data || []; // Models are in the 'data' array
     
-    modelSelect.innerHTML = ''; // Clear previous options
+    modelSelects.forEach(select => {
+      select.innerHTML = ''; // Clear previous options
+    });
     screenshotModelSelect.innerHTML = ''; // Clear previous options
     
     if (models.length > 0) {
@@ -923,16 +922,20 @@ async function testAPIConnection(showMessage = true) {
       );
 
       if (filteredModels.length === 0) {
-        modelSelect.innerHTML = '<option value="">No compatible models found.</option>';
+        modelSelects.forEach(select => {
+          select.innerHTML = '<option value="">No compatible models found.</option>';
+        });
         screenshotModelSelect.innerHTML = '<option value="">No compatible models found.</option>';
         if (showMessage) showPopupMessage('Connection successful, but no compatible models found.', 'error');
       } else {
-        // Populate AI Judge model selector (all models)
-        filteredModels.forEach(model => {
-          const option = document.createElement('option');
-          option.value = model.id;
-          option.textContent = model.id;
-          modelSelect.appendChild(option);
+        // Populate all model selectors
+        modelSelects.forEach(select => {
+          filteredModels.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.id;
+            select.appendChild(option);
+          });
         });
         
         // Populate Screenshot model selector (vision models only)
@@ -953,13 +956,25 @@ async function testAPIConnection(showMessage = true) {
           });
         }
         
-        // Try to select previously saved models
-        const savedModel = localStorage.getItem('openai_model');
+        // Try to select previously saved models or set defaults
+        const savedModels = [
+          localStorage.getItem('openai_model1') || 'gpt-4o-mini',
+          localStorage.getItem('openai_model2') || '',
+          localStorage.getItem('openai_model3') || '',
+          localStorage.getItem('openai_model4') || ''
+        ];
         const savedScreenshotModel = localStorage.getItem('openai_screenshot_model');
         
-        if (savedModel && modelSelect.querySelector(`option[value="${savedModel}"]`)) {
-            modelSelect.value = savedModel;
-        }
+        modelSelects.forEach((select, index) => {
+          const savedModel = savedModels[index];
+          if (savedModel && select.querySelector(`option[value="${savedModel}"]`)) {
+            select.value = savedModel;
+          } else if (index === 0 && select.querySelector(`option[value="gpt-4o-mini"]`)) {
+            // Default first model to gpt-4o-mini if available
+            select.value = 'gpt-4o-mini';
+          }
+        });
+        
         if (savedScreenshotModel && screenshotModelSelect.querySelector(`option[value="${savedScreenshotModel}"]`)) {
             screenshotModelSelect.value = savedScreenshotModel;
         } else if (visionModels.length > 0) {
@@ -970,18 +985,24 @@ async function testAPIConnection(showMessage = true) {
         if (showMessage) showPopupMessage('Connection successful! Models loaded.', 'success');
       }
     } else {
-      modelSelect.innerHTML = '<option value="">No models found.</option>';
+      modelSelects.forEach(select => {
+        select.innerHTML = '<option value="">No models found.</option>';
+      });
       screenshotModelSelect.innerHTML = '<option value="">No models found.</option>';
       if (showMessage) showPopupMessage('Connection successful, but no models returned.', 'error');
     }
     return true;
   } catch (error) {
     console.error('API Connection Test Error:', error);
-    modelSelect.innerHTML = '<option value="">Connection failed. Check console.</option>';
+    modelSelects.forEach(select => {
+      select.innerHTML = '<option value="">Connection failed. Check console.</option>';
+    });
     if (showMessage) showPopupMessage(`Connection failed: ${error.message}`, 'error', 5000);
     return false;
   } finally {
-    modelSelect.disabled = false;
+    modelSelects.forEach(select => {
+      select.disabled = false;
+    });
     screenshotModelSelect.disabled = false;
   }
 }
@@ -1153,20 +1174,22 @@ document.getElementById('testAudioBtn').addEventListener('click', async function
 document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
-  const selectedModel = document.getElementById('modelSelect').value;
+  const selectedModel1 = document.getElementById('modelSelect1').value;
+  const selectedModel2 = document.getElementById('modelSelect2').value;
+  const selectedModel3 = document.getElementById('modelSelect3').value;
+  const selectedModel4 = document.getElementById('modelSelect4').value;
+  const enableModel1 = document.getElementById('enableModel1').checked;
+  const enableModel2 = document.getElementById('enableModel2').checked;
+  const enableModel3 = document.getElementById('enableModel3').checked;
+  const enableModel4 = document.getElementById('enableModel4').checked;
   const selectedScreenshotModel = document.getElementById('screenshotModelSelect').value;
   const screenshotDetailLevel = document.getElementById('screenshotDetailSelect').value;
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
   const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
   const enableAudioRerouting = document.getElementById('enableAudioRerouting').checked;
   
-  // Get AI Judge settings
-  const enableJudge1 = document.getElementById('enableJudge1').checked;
-  const enableJudge2 = document.getElementById('enableJudge2').checked;
-  const enableJudge3 = document.getElementById('enableJudge3').checked;
-  const judge1Prompt = document.getElementById('judge1Prompt').value.trim();
-  const judge2Prompt = document.getElementById('judge2Prompt').value.trim();
-  const judge3Prompt = document.getElementById('judge3Prompt').value.trim();
+  // Get User Prompt Template setting
+  const userPromptTemplate = document.getElementById('userPromptTemplate').value.trim();
 
   if (!apiKey) {
     showPopupMessage('API Key cannot be empty.', 'error');
@@ -1174,28 +1197,40 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     return;
   }
 
-  // Test connection before saving if models aren't loaded or selection is empty
-  const modelSelect = document.getElementById('modelSelect');
-  if (!modelSelect.value || modelSelect.options.length <=1 && modelSelect.options[0].value === "") {
+  // Test connection before saving if models aren't loaded
+  const modelSelect1 = document.getElementById('modelSelect1');
+  if (!modelSelect1.value || modelSelect1.options.length <= 1 && modelSelect1.options[0].value === "") {
       showPopupMessage('Testing connection before saving...', 'success');
       const connectionSuccessful = await testAPIConnection(true);
-      if (!connectionSucccdessful) {
+      if (!connectionSuccessful) {
           showPopupMessage('Cannot save settings. API connection failed.', 'error');
           return;
       }
-      // Re-check selected model after testAPIConnection populates it
-      const newlySelectedModel = document.getElementById('modelSelect').value;
-      if (!newlySelectedModel) {
-          showPopupMessage('Please select a model after successful connection test.', 'error');
-          return;
-      }
-       localStorage.setItem('openai_model', newlySelectedModel);
-  } else {
-      localStorage.setItem('openai_model', selectedModel);
+  }
+  
+  // Validate that at least one model is enabled and selected
+  const enabledModels = [
+    enableModel1 && selectedModel1,
+    enableModel2 && selectedModel2,
+    enableModel3 && selectedModel3,
+    enableModel4 && selectedModel4
+  ].filter(Boolean);
+  
+  if (enabledModels.length === 0) {
+    showPopupMessage('Please enable and select at least one model.', 'error');
+    return;
   }
 
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
+  localStorage.setItem('openai_model1', selectedModel1);
+  localStorage.setItem('openai_model2', selectedModel2);
+  localStorage.setItem('openai_model3', selectedModel3);
+  localStorage.setItem('openai_model4', selectedModel4);
+  localStorage.setItem('enable_model1', enableModel1.toString());
+  localStorage.setItem('enable_model2', enableModel2.toString());
+  localStorage.setItem('enable_model3', enableModel3.toString());
+  localStorage.setItem('enable_model4', enableModel4.toString());
   localStorage.setItem('openai_screenshot_model', selectedScreenshotModel);
   localStorage.setItem('screenshot_detail_level', screenshotDetailLevel);
   localStorage.setItem('enable_screenshot_analysis', enableScreenshotAnalysis.toString());
@@ -1203,31 +1238,40 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('download_audio_files', downloadFiles.toString());
   localStorage.setItem('transcription_language', document.getElementById('languageSelect').value);
   
-  // Save AI Judge settings
-  localStorage.setItem('enable_judge1_judge', enableJudge1);
-  localStorage.setItem('enable_judge2_judge', enableJudge2);
-  localStorage.setItem('enable_judge3_judge', enableJudge3);
-  localStorage.setItem('judge1_judge_prompt', judge1Prompt || DEFAULT_JUDGE_PROMPTS.judge1);
-  localStorage.setItem('judge2_judge_prompt', judge2Prompt || DEFAULT_JUDGE_PROMPTS.judge2);
-  localStorage.setItem('judge3_judge_prompt', judge3Prompt || DEFAULT_JUDGE_PROMPTS.judge3);
+  // Save User Prompt Template setting
+  localStorage.setItem('user_prompt_template', userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE);
+  
+  // For backward compatibility, save the first enabled model as the primary model
+  if (enableModel1 && selectedModel1) {
+    localStorage.setItem('openai_model', selectedModel1);
+  } else if (enableModel2 && selectedModel2) {
+    localStorage.setItem('openai_model', selectedModel2);
+  } else if (enableModel3 && selectedModel3) {
+    localStorage.setItem('openai_model', selectedModel3);
+  } else if (enableModel4 && selectedModel4) {
+    localStorage.setItem('openai_model', selectedModel4);
+  }
   
   // Also save to chrome.storage.local for background script access
   const settingsToStore = {
     'openai_api_key': apiKey,
     'openai_api_endpoint': apiEndpoint,
     'openai_model': localStorage.getItem('openai_model'),
+    'openai_model1': selectedModel1,
+    'openai_model2': selectedModel2,
+    'openai_model3': selectedModel3,
+    'openai_model4': selectedModel4,
+    'enable_model1': enableModel1.toString(),
+    'enable_model2': enableModel2.toString(),
+    'enable_model3': enableModel3.toString(),
+    'enable_model4': enableModel4.toString(),
     'openai_screenshot_model': selectedScreenshotModel,
     'screenshot_detail_level': screenshotDetailLevel,
     'enable_screenshot_analysis': enableScreenshotAnalysis.toString(),
     'enable_audio_rerouting': enableAudioRerouting.toString(),
     'download_audio_files': downloadFiles.toString(),
     'transcription_language': document.getElementById('languageSelect').value,
-    'enable_judge1_judge': enableJudge1,
-    'enable_judge2_judge': enableJudge2,
-    'enable_judge3_judge': enableJudge3,
-    'judge1_judge_prompt': judge1Prompt || DEFAULT_JUDGE_PROMPTS.judge1,
-    'judge2_judge_prompt': judge2Prompt || DEFAULT_JUDGE_PROMPTS.judge2,
-    'judge3_judge_prompt': judge3Prompt || DEFAULT_JUDGE_PROMPTS.judge3
+    'user_prompt_template': userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE
   };
   
   chrome.storage.local.set(settingsToStore, function() {
@@ -1244,7 +1288,12 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     apiEndpoint, 
     downloadFiles, 
     enableScreenshotAnalysis,
-    model: localStorage.getItem('openai_model'),
-    aiJudges: { enableJudge1, enableJudge2, enableJudge3 }
+    models: [
+      { model: selectedModel1, enabled: enableModel1 },
+      { model: selectedModel2, enabled: enableModel2 },
+      { model: selectedModel3, enabled: enableModel3 },
+      { model: selectedModel4, enabled: enableModel4 }
+    ],
+    userPromptTemplate: userPromptTemplate.length > 50 ? userPromptTemplate.substring(0, 50) + '...' : userPromptTemplate
   });
 });

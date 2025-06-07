@@ -121,8 +121,20 @@ class APIService {
     }
   }
 
-  async generateEvaluation(transcript, screenshots) {
+  async processWithUserPrompt(userPromptTemplate, transcriptContent) {
     try {
+      // Ensure API service is initialized
+      if (!this.initialized) {
+        await this.initialize();
+      }
+
+      if (!this.settings.apiKey) {
+        throw new Error('No API key configured for processing');
+      }
+
+      // Replace {context} placeholder with actual transcript content
+      const finalPrompt = userPromptTemplate.replace(/{context}/g, transcriptContent);
+
       const endpoint = this.settings.apiEndpoint;
       const response = await fetch(`${endpoint}/chat/completions`, {
         method: 'POST',
@@ -131,32 +143,84 @@ class APIService {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: this.settings.model,
+          model: this.settings.model || 'gpt-4o-mini',
           messages: [
             {
-              role: 'system',
-              content: 'You are an AI hackathon judge. Analyze the presentation and provide detailed feedback.'
-            },
-            {
               role: 'user',
-              content: this.prepareEvaluationPrompt(transcript, screenshots)
+              content: finalPrompt
             }
           ],
-          max_tokens: this.settings.maxTokens,
-          temperature: this.settings.temperature
+          max_tokens: 2000,
+          temperature: 0.7
         })
       });
 
       if (!response.ok) {
-        throw new Error(`API endpoint validation failed: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
       }
       
       const data = await response.json();
+      
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('Invalid response format from API');
+      }
+      
       return data.choices[0].message.content;
     } catch (error) {
-      console.error('API endpoint validation failed:', error);
+      console.error('User prompt processing failed:', error);
       throw error;
     }
+  }
+
+  // Legacy method - keeping for backward compatibility but will use user prompt template
+  async generateEvaluation(transcript, screenshots) {
+    try {
+      // Get user prompt template from localStorage, fallback to a simple evaluation prompt
+      const userPromptTemplate = localStorage.getItem('user_prompt_template') || 
+        'Please analyze and summarize the following meeting content:\n\n{context}';
+      
+      // Prepare transcript content
+      const transcriptContent = this.prepareTranscriptContent(transcript, screenshots);
+      
+      // Use the new processWithUserPrompt method
+      return await this.processWithUserPrompt(userPromptTemplate, transcriptContent);
+    } catch (error) {
+      console.error('Legacy evaluation method failed:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to prepare transcript content
+  prepareTranscriptContent(transcript, screenshots) {
+    let content = '';
+    
+    if (transcript) {
+      if (typeof transcript === 'string') {
+        content = transcript;
+      } else if (transcript.text) {
+        content = transcript.text;
+      } else if (transcript.chunks && Array.isArray(transcript.chunks)) {
+        content = transcript.chunks.map(chunk => {
+          if (chunk.type === 'screenshot' || chunk.type === 'screenshot_analysis') {
+            return `[Screenshot Analysis: ${chunk.analysis}]`;
+          }
+          return chunk.text || chunk.analysis || '';
+        }).join('\n');
+      }
+    }
+    
+    if (screenshots && Array.isArray(screenshots)) {
+      const screenshotAnalyses = screenshots.map(screenshot => 
+        `[Screenshot Analysis: ${screenshot.analysis || 'No analysis available'}]`
+      ).join('\n');
+      
+      if (screenshotAnalyses) {
+        content += (content ? '\n\n' : '') + screenshotAnalyses;
+      }
+    }
+    
+    return content || 'No content available';
   }
 
   async analyzeImage(imageBlob, detailLevel = 'medium') {

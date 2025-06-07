@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Background circle with lighter green -->
+  <circle cx="64" cy="64" r="62" fill="#4ade80" opacity="0.2"/>
+  
+  <!-- Larger audio waveform bars with brighter colors -->
+  <g transform="translate(64, 64)">
+    <!-- Center bar - taller and wider -->
+    <rect x="-5" y="-35" width="10" height="70" rx="5" fill="#22c55e"/>
+    
+    <!-- Side bars - proportionally larger -->
+    <rect x="-20" y="-28" width="10" height="56" rx="5" fill="#4ade80"/>
+    <rect x="10" y="-28" width="10" height="56" rx="5" fill="#4ade80"/>
+    
+    <!-- Outer bars - more visible -->
+    <rect x="-35" y="-20" width="10" height="40" rx="5" fill="#86efac"/>
+    <rect x="25" y="-20" width="10" height="40" rx="5" fill="#86efac"/>
+    
+    <!-- Far outer bars - still visible -->
+    <rect x="-50" y="-12" width="10" height="24" rx="5" fill="#bbf7d0"/>
+    <rect x="40" y="-12" width="10" height="24" rx="5" fill="#bbf7d0"/>
+  </g>
+  
+  <!-- Larger AI text with better contrast -->
+  <text x="64" y="105" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="#16a34a">AI</text>
+</svg>
