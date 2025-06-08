@@ -764,30 +764,39 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
   Promise.all([
     getFromStorage('openai_api_key'),
     getFromStorage('openai_api_endpoint'),
-    getFromStorage('openai_screenshot_model')
-  ]).then(([apiKey, apiEndpoint, screenshotModel]) => {
+    getFromStorage('openai_screenshot_model'),
+    getFromStorage('transcription_language')
+  ]).then(([apiKey, apiEndpoint, screenshotModel, language]) => {
     const endpoint = apiEndpoint || 'https://api.openai.com/v1';
     const model = screenshotModel || 'gpt-4o';
     
-    console.log(`[BACKGROUND_SCRIPT] Screenshot analysis settings - Model: ${model}, Endpoint: ${endpoint}`);
+    console.log(`[BACKGROUND_SCRIPT] Screenshot analysis settings - Model: ${model}, Endpoint: ${endpoint}, Language: ${language || 'auto'}`);
     
     if (!apiKey) {
       console.warn('[BACKGROUND_SCRIPT] No OpenAI API key found, skipping screenshot analysis');
       return;
     }
     
-    // 根據詳細程度設置不同的提示詞
+    // 根據詳細程度和語言設置不同的提示詞
     let prompt;
+    const isChineseMode = language === 'zh';
+    
     switch (detailLevel) {
       case 'low':
-        prompt = 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
+        prompt = isChineseMode 
+          ? '用1-2句話簡要描述這個截圖中發生了什麼。'
+          : 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
         break;
       case 'high':
-        prompt = 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
+        prompt = isChineseMode
+          ? '提供這個截圖的詳細分析，包括所有可見文字、UI元素、用戶操作，以及任何可能與會議記錄相關的重要上下文。'
+          : 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
         break;
       case 'medium':
       default:
-        prompt = 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
+        prompt = isChineseMode
+          ? '描述這個截圖中發生了什麼，重點關注關鍵活動、可見文字和重要的UI元素。'
+          : 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
         break;
     }
     
@@ -801,6 +810,12 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
       body: JSON.stringify({
         model: model,
         messages: [
+          {
+            role: 'system',
+            content: isChineseMode 
+              ? '你是一個會議助手，請用中文回答。分析截圖時要準確、簡潔。'
+              : 'You are a meeting assistant. Analyze screenshots accurately and concisely.'
+          },
           {
             role: 'user',
             content: [
