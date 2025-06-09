@@ -153,8 +153,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Start the first segment capture - this will also set the recordingActiveTab value
         captureNewSegment();
         
-        // Set interval to capture new segments every 10 seconds
-        transcribeInterval = setInterval(() => {
+        // Get transcription interval from storage (default 10 seconds)
+        getFromStorage('transcription_interval').then(interval => {
+          const transcriptionIntervalMs = (parseInt(interval) || 10) * 1000;
+          console.log(`[BACKGROUND_SCRIPT] Setting transcription interval to ${transcriptionIntervalMs}ms`);
+          
+          // Set interval to capture new segments
+          transcribeInterval = setInterval(() => {
           if (captureState.isCapturing) {
             // 检查扩展是否仍然有效
             if (!chrome.tabCapture || !chrome.tabCapture.getMediaStreamId) {
@@ -186,10 +191,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
             });
           }
-        }, 10000);
+          }, transcriptionIntervalMs);
+        });
         
-        // Set interval to capture screenshots every 10 seconds
-        screenshotInterval = setInterval(() => {
+        // Get screenshot interval from storage (default 10 seconds)
+        getFromStorage('screenshot_interval').then(interval => {
+          const screenshotIntervalMs = (parseInt(interval) || 10) * 1000;
+          console.log(`[BACKGROUND_SCRIPT] Setting screenshot interval to ${screenshotIntervalMs}ms`);
+          
+          // Set interval to capture screenshots
+          screenshotInterval = setInterval(() => {
           if (captureState.isCapturing) {
             // Check if screenshot analysis is enabled
             getFromStorage('enable_screenshot_analysis').then(enableScreenshotAnalysis => {
@@ -198,7 +209,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
             });
           }
-        }, 10000);
+          }, screenshotIntervalMs);
+        });
         
         sendResponse({ success: true });
       } catch (error) {
@@ -471,6 +483,7 @@ function stopCapturing() {
   // Set state flags first
   captureState.isCapturing = false; 
   captureState.acceptingTranscriptions = false;
+  captureState.lastScreenshotDataUrl = null; // Reset last screenshot so next capture doesn't skip first shot
   
   // Message offscreen to stop recording
   chrome.runtime.sendMessage({
@@ -671,11 +684,20 @@ function captureScreenshot() {
           
           // 與前一張截圖比較
           if (captureState.lastScreenshotDataUrl === dataUrl) {
-            console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis.');
+            console.log('[BACKGROUND_SCRIPT] Screenshot is identical to the previous one. Skipping analysis to save API calls.');
+            // Optionally, you can still track that a duplicate was detected
+            chrome.runtime.sendMessage({
+              action: 'screenshotDuplicateDetected',
+              timestamp: new Date().toISOString(),
+              message: 'Screenshot unchanged, analysis skipped'
+            }).catch(err => {
+              console.log('[BACKGROUND_SCRIPT] Broadcast message (screenshotDuplicateDetected) - recipient may not be available:', err.message);
+            });
             return;
           }
           
           // 更新上一張截圖的 Data URL
+          console.log('[BACKGROUND_SCRIPT] New screenshot detected, updating reference and proceeding with analysis');
           captureState.lastScreenshotDataUrl = dataUrl;
           
           // 處理截圖
@@ -781,22 +803,27 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
     let prompt;
     const isChineseMode = language === 'zh';
     
+    // Base instruction to ignore Teams UI
+    const baseInstructionChinese = '這是 Microsoft Teams 的截圖。請只關注螢幕中央的共享內容，忽略所有 Teams UI 元素，如工具欄、參與者列表、聊天面板、會議控制或任何 Teams 介面按鈕。';
+    const baseInstructionEnglish = 'This is a screenshot from Microsoft Teams. Please focus ONLY on the shared content in the center of the screen and ignore all Teams UI elements such as the toolbar, participant list, chat panel, meeting controls, or any Teams interface buttons.';
+    const baseInstruction = isChineseMode ? baseInstructionChinese : baseInstructionEnglish;
+    
     switch (detailLevel) {
       case 'low':
         prompt = isChineseMode 
-          ? '用1-2句話簡要描述這個截圖中發生了什麼。'
-          : 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
+          ? baseInstruction + ' 用1-2句話簡要描述主要的共享內容。'
+          : baseInstruction + ' Briefly describe the main shared content in 1-2 sentences.';
         break;
       case 'high':
         prompt = isChineseMode
-          ? '提供這個截圖的詳細分析，包括所有可見文字、UI元素、用戶操作，以及任何可能與會議記錄相關的重要上下文。'
-          : 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
+          ? baseInstruction + ' 提供共享內容的詳細分析，包括所有可見文字、圖表、程式碼、簡報或文件。不要提及任何 Teams 介面元素。'
+          : baseInstruction + ' Provide a detailed analysis of the shared content only, including all visible text, diagrams, code, presentations, or documents being shared. Do not mention any Teams interface elements.';
         break;
       case 'medium':
       default:
         prompt = isChineseMode
-          ? '描述這個截圖中發生了什麼，重點關注關鍵活動、可見文字和重要的UI元素。'
-          : 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
+          ? baseInstruction + ' 描述共享內容，重點關注關鍵資訊、可見文字、圖表或簡報。忽略邊緣的所有 Teams UI 元素。'
+          : baseInstruction + ' Describe the shared content, focusing on key information, visible text, diagrams, or presentations. Ignore all Teams UI elements around the edges.';
         break;
     }
     
@@ -813,8 +840,8 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
           {
             role: 'system',
             content: isChineseMode 
-              ? '你是一個會議助手，請用中文回答。分析截圖時要準確、簡潔。'
-              : 'You are a meeting assistant. Analyze screenshots accurately and concisely.'
+              ? '你是一個會議助手，請用中文回答。分析截圖時要準確、簡潔。重要提醒：這些是 Teams 會議的截圖，請忽略所有 Teams UI 元素（如工具欄、參與者列表等），只專注於中央的共享內容。'
+              : 'You are a meeting assistant. Analyze screenshots accurately and concisely. Important: These are Teams meeting screenshots, please ignore all Teams UI elements (toolbars, participant lists, etc.) and focus only on the shared content in the center.'
           },
           {
             role: 'user',

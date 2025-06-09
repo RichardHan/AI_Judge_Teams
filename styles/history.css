@@ -101,8 +101,15 @@ h2 {
   color: white;
 }
 
-.btn-action:hover {
+.btn-action:hover:not(:disabled) {
   background-color: #4a4c8c;
+}
+
+.btn-action:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .btn-danger {
@@ -110,8 +117,15 @@ h2 {
   color: white;
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background-color: #c9302c;
+}
+
+.btn-danger:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .btn-judge {
@@ -377,38 +391,42 @@ h2 {
 /* Debug Section */
 .debug-section {
   position: fixed;
-  bottom: 20px;
+  bottom: 70px;
   right: 20px;
   max-width: 300px;
-  padding: 10px;
-  background-color: rgba(248, 249, 250, 0.95);
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border: 2px solid #6c757d;
+  border-radius: 8px;
   font-size: 12px;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(100%);
-  transition: all 0.3s ease;
-  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
 }
 
-.debug-section:hover,
-.debug-section.show {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(0);
+.debug-section h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: #495057;
+  font-weight: 600;
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #dee2e6;
 }
 
-/* Debug trigger area - invisible hover zone */
-.debug-trigger {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  width: 50px;
-  height: 100px;
-  z-index: 999;
-  background: transparent;
+.debug-section button {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.debug-section .btn-secondary {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+}
+
+.debug-section .btn-secondary:hover {
+  background-color: #5a6268;
 }
 
 .debug-section h3 {
@@ -506,4 +524,75 @@ h2 {
 .model-result-error {
   color: #721c24;
   font-size: 14px;
+}
+
+/* Score Summary Styles */
+.score-summary-section {
+  margin: 20px 0;
+}
+
+.score-summary-section h2 {
+  color: #6264A7;
+  font-size: 18px;
+  margin-bottom: 15px;
+}
+
+.score-summary-table-container {
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  padding: 20px;
+  overflow-x: auto;
+}
+
+.llm-score-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+
+.llm-score-summary-table th {
+  padding: 10px 20px;
+  text-align: center;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #6264A7;
+  white-space: nowrap;
+}
+
+.llm-score-summary-table td {
+  padding: 10px 20px;
+  text-align: center;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.llm-score-summary-table tr.model-names td {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+  padding: 5px 20px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.llm-score-summary-table .score-cell {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1976d2;
+}
+
+.llm-score-summary-table .avg-score {
+  background-color: #e3f2fd;
+  color: #0d47a1;
+  font-weight: 700;
+}
+
+.score-summary-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.score-summary-note p {
+  margin: 0;
 }

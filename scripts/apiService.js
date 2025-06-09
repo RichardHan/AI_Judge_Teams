@@ -136,37 +136,53 @@ class APIService {
       const finalPrompt = userPromptTemplate.replace(/{context}/g, transcriptContent);
 
       const endpoint = this.settings.apiEndpoint;
-      const response = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.settings.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.settings.model || 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'user',
-              content: finalPrompt
-            }
-          ],
-          max_tokens: 2000,
-          temperature: 0.7
-        })
-      });
+      
+      // Add timeout control
+      const controller = new AbortController();
+      const timeoutMs = 60000; // 60 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      try {
+        const response = await fetch(`${endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.settings.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: this.settings.model || 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'user',
+                content: finalPrompt
+              }
+            ],
+            max_tokens: 2000,
+            temperature: 0.7
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: response.statusText }));
-        throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+          throw new Error('Invalid response format from API');
+        }
+        
+        return data.choices[0].message.content;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout after 60 seconds');
+        }
+        throw error;
       }
-      
-      const data = await response.json();
-      
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        throw new Error('Invalid response format from API');
-      }
-      
-      return data.choices[0].message.content;
     } catch (error) {
       console.error('User prompt processing failed:', error);
       throw error;
@@ -238,17 +254,20 @@ class APIService {
       const imageDataUrl = await this.blobToDataUrl(imageBlob);
       
       // Determine prompt based on detail level
+      // All prompts now include instruction to ignore Teams UI
+      const baseInstruction = 'This is a screenshot from Microsoft Teams. Please focus ONLY on the shared content in the center of the screen and ignore all Teams UI elements such as the toolbar, participant list, chat panel, meeting controls, or any Teams interface buttons. ';
+      
       let prompt;
       switch (detailLevel) {
         case 'low':
-          prompt = 'Briefly describe what is happening in this screenshot in 1-2 sentences.';
+          prompt = baseInstruction + 'Briefly describe the main shared content in 1-2 sentences.';
           break;
         case 'high':
-          prompt = 'Provide a detailed analysis of this screenshot, including all visible text, UI elements, user actions, and any important context that might be relevant for meeting documentation.';
+          prompt = baseInstruction + 'Provide a detailed analysis of the shared content only, including all visible text, diagrams, code, presentations, or documents being shared. Do not mention any Teams interface elements.';
           break;
         case 'medium':
         default:
-          prompt = 'Describe what is happening in this screenshot, focusing on key activities, visible text, and important UI elements.';
+          prompt = baseInstruction + 'Describe the shared content, focusing on key information, visible text, diagrams, or presentations. Ignore all Teams UI elements around the edges.';
           break;
       }
 
@@ -256,13 +275,21 @@ class APIService {
       const visionModel = this.settings.model.includes('gpt-4') ? this.settings.model : 'gpt-4o';
       
       const endpoint = this.settings.apiEndpoint;
-      const response = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.settings.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+      
+      // Add timeout control for image analysis
+      const controller = new AbortController();
+      const timeoutMs = 45000; // 45 second timeout for image analysis
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      try {
+        const response = await fetch(`${endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.settings.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
           model: visionModel,
           messages: [
             {
@@ -283,21 +310,29 @@ class APIService {
           ],
           max_tokens: detailLevel === 'high' ? 500 : (detailLevel === 'low' ? 100 : 300),
           temperature: 0.7
-        })
-      });
+          })
+        });
+        
+        clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Image analysis API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Image analysis API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+          throw new Error('Invalid response format from image analysis API');
+        }
+        
+        return data.choices[0].message.content;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Image analysis timeout after 45 seconds');
+        }
+        throw error;
       }
-      
-      const data = await response.json();
-      
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        throw new Error('Invalid response format from image analysis API');
-      }
-      
-      return data.choices[0].message.content;
     } catch (error) {
       console.error('Image analysis failed:', error);
       throw error;

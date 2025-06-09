@@ -824,3 +824,16 @@ h2 {
   border-radius: 3px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
 }
+
+/* Button Layout */
+.save-settings-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.test-buttons-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}

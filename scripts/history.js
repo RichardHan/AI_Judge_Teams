@@ -34,28 +34,55 @@ document.addEventListener('DOMContentLoaded', function() {
     <button id="clearTeamsDataBtn" class="btn btn-danger">Clear All Data</button>
     <div id="debugInfo"></div>
   `;
+  debugSection.style.display = 'none'; // Initially hidden
   document.body.appendChild(debugSection);
   
-  // 添加觸發區域
-  const debugTrigger = document.createElement('div');
-  debugTrigger.className = 'debug-trigger';
-  document.body.appendChild(debugTrigger);
-  
-  // 添加滑鼠事件來控制debug section的顯示
-  debugTrigger.addEventListener('mouseenter', function() {
-    debugSection.classList.add('show');
+  // 添加可見的Debug按鈕
+  const debugButton = document.createElement('button');
+  debugButton.className = 'debug-toggle-btn';
+  debugButton.innerHTML = '🔧 Debug';
+  debugButton.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 8px 16px;
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    z-index: 1001;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+  `;
+  debugButton.addEventListener('mouseenter', function() {
+    this.style.backgroundColor = '#5a6268';
+    this.style.transform = 'scale(1.05)';
   });
-  
-  debugTrigger.addEventListener('mouseleave', function() {
-    debugSection.classList.remove('show');
+  debugButton.addEventListener('mouseleave', function() {
+    this.style.backgroundColor = '#6c757d';
+    this.style.transform = 'scale(1)';
   });
+  document.body.appendChild(debugButton);
   
-  debugSection.addEventListener('mouseenter', function() {
-    debugSection.classList.add('show');
-  });
-  
-  debugSection.addEventListener('mouseleave', function() {
-    debugSection.classList.remove('show');
+  // Toggle debug section visibility
+  let debugVisible = false;
+  debugButton.addEventListener('click', function() {
+    debugVisible = !debugVisible;
+    if (debugVisible) {
+      debugSection.style.display = 'block';
+      debugSection.style.opacity = '1';
+      debugSection.style.visibility = 'visible';
+      debugSection.style.transform = 'translateX(0)';
+      debugButton.innerHTML = '✖ Close';
+      debugButton.style.backgroundColor = '#dc3545';
+    } else {
+      debugSection.style.display = 'none';
+      debugButton.innerHTML = '🔧 Debug';
+      debugButton.style.backgroundColor = '#6c757d';
+    }
   });
   
   // 添加測試數據按鈕事件
@@ -88,28 +115,76 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 為第一個團隊添加一個轉錄記錄
     const team = activeTeams[0];
+    const baseTime = Date.now();
+    
+    // 創建更豐富的測試數據，包含音頻轉錄和截圖分析
     const testChunks = [
       {
-        timestamp: new Date().toISOString(),
-        text: "這是一段測試轉錄文本，用於測試歷史記錄功能是否正常工作。",
-        isFinal: false
+        timestamp: new Date(baseTime).toISOString(),
+        text: "大家好，今天我們要展示的是一個創新的AI解決方案。這個項目主要解決了企業在數據分析方面的痛點。",
+        type: "audio"
       },
       {
-        timestamp: new Date(Date.now() + 10000).toISOString(),
-        text: "這是第二段轉錄文本，生成於十秒後。",
-        isFinal: false
+        timestamp: new Date(baseTime + 5000).toISOString(),
+        text: "我們使用了最新的機器學習技術，包括深度學習和自然語言處理。系統可以自動分析客戶反饋並生成洞察報告。",
+        type: "audio"
       },
       {
-        timestamp: new Date(Date.now() + 20000).toISOString(),
-        text: "這是最後一段測試文本，作為最終段落。",
-        isFinal: true
+        timestamp: new Date(baseTime + 8000).toISOString(),
+        analysis: "Slide showing system architecture with microservices design, API gateway, and distributed database clusters. The presenter is pointing to the machine learning pipeline.",
+        type: "screenshot"
+      },
+      {
+        timestamp: new Date(baseTime + 15000).toISOString(),
+        text: "在技術架構方面，我們採用了微服務設計，確保系統的可擴展性。每個服務都是獨立部署的，這樣可以提高系統的穩定性。",
+        type: "audio"
+      },
+      {
+        timestamp: new Date(baseTime + 20000).toISOString(),
+        analysis: "Demo screen showing real-time data analytics dashboard with multiple charts, KPI metrics, and a live feed of customer sentiment analysis results.",
+        type: "screenshot"
+      },
+      {
+        timestamp: new Date(baseTime + 25000).toISOString(),
+        text: "這是我們的實時分析儀表板。您可以看到，系統能夠即時處理大量數據並提供可視化的洞察。右側是客戶情緒分析的結果。",
+        type: "audio"
+      },
+      {
+        timestamp: new Date(baseTime + 30000).toISOString(),
+        text: "我們的商業模式是SaaS訂閱制，目前已經有50家企業客戶在使用我們的系統。月收入已經達到10萬美元。",
+        type: "audio"
+      },
+      {
+        timestamp: new Date(baseTime + 35000).toISOString(),
+        analysis: "Financial projections slide showing hockey stick growth curve, with revenue projections reaching $5M ARR by end of next year. Break-even point highlighted at month 18.",
+        type: "screenshot"
+      },
+      {
+        timestamp: new Date(baseTime + 40000).toISOString(),
+        text: "根據我們的財務預測，預計明年底可以達到500萬美元的年度經常性收入。我們計劃在18個月內實現盈虧平衡。",
+        type: "audio"
+      },
+      {
+        timestamp: new Date(baseTime + 45000).toISOString(),
+        text: "謝謝大家的聆聽。現在開放提問時間，歡迎各位評審提出任何問題。",
+        type: "audio"
       }
     ];
+    
+    // 生成完整文本
+    const fullText = testChunks
+      .map(chunk => {
+        if (chunk.type === 'screenshot') {
+          return `[Screenshot: ${chunk.analysis}]`;
+        }
+        return chunk.text;
+      })
+      .join(' ');
     
     const newTranscript = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
-      text: testChunks.map(chunk => chunk.text).join(' '),
+      text: fullText,
       chunks: testChunks
     };
     
@@ -151,7 +226,7 @@ document.addEventListener('DOMContentLoaded', function() {
       alert('Notes processing failed: ' + error.message);
     } finally {
       processNotesBtn.disabled = false;
-      processNotesBtn.textContent = '📝 Process Notes';
+      processNotesBtn.textContent = '🤖 Run AI Analysis';
     }
   });
   
@@ -246,12 +321,19 @@ document.addEventListener('DOMContentLoaded', function() {
   function displayTranscriptDetail(teamId, transcriptId) {
     // 設置選中的團隊ID，這樣按鈕功能才能正常工作
     selectedTeamId = teamId;
+    activeTranscriptId = transcriptId;
     
     const team = activeTeams.find(t => t.id === teamId);
-    if (!team) return;
+    if (!team) {
+      clearTranscriptDetail();
+      return;
+    }
     
     const transcript = team.transcripts.find(t => t.id === transcriptId);
-    if (!transcript) return;
+    if (!transcript) {
+      clearTranscriptDetail();
+      return;
+    }
     
     const date = new Date(transcript.date);
     const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -322,6 +404,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 複製到剪貼簿按鈕點擊事件
   copyToClipboardBtn.addEventListener('click', async function() {
+    // Double-check button should be enabled
+    if (this.disabled) return;
     if (!selectedTeamId || !activeTranscriptId) return;
     
     const team = activeTeams.find(t => t.id === selectedTeamId);
@@ -333,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       // 顯示載入狀態
       copyToClipboardBtn.disabled = true;
-      copyToClipboardBtn.textContent = '📋 Copying...';
+      copyToClipboardBtn.textContent = '📋 Processing...';
       
       const date = new Date(transcript.date);
       const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
@@ -372,19 +456,28 @@ document.addEventListener('DOMContentLoaded', function() {
         content = transcriptContent;
       }
       
-      // 使用 Clipboard API 複製到剪貼簿
+      // 1. 下載文件
+      const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Prompt_Transcript_${team.name}_${formattedDate}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      // 2. 複製到剪貼簿
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(content);
         
         // 顯示成功狀態
-        copyToClipboardBtn.textContent = '✅ Copied!';
+        copyToClipboardBtn.textContent = '✅ Downloaded & Copied!';
         setTimeout(() => {
-          copyToClipboardBtn.textContent = '📋 Copy to Clipboard';
+          copyToClipboardBtn.textContent = '📋 Export Prompt + Transcript';
           copyToClipboardBtn.disabled = false;
         }, 2000);
         
         // 顯示成功提示
-        showMessage('Transcript copied to clipboard successfully!', 'success');
+        showMessage('File downloaded and copied to clipboard successfully!', 'success');
         
       } else {
         // Fallback for older browsers
@@ -400,12 +493,12 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
           const successful = document.execCommand('copy');
           if (successful) {
-            copyToClipboardBtn.textContent = '✅ Copied!';
+            copyToClipboardBtn.textContent = '✅ Downloaded & Copied!';
             setTimeout(() => {
-              copyToClipboardBtn.textContent = '📋 Copy to Clipboard';
+              copyToClipboardBtn.textContent = '📋 Export Prompt + Transcript';
               copyToClipboardBtn.disabled = false;
             }, 2000);
-            showMessage('Transcript copied to clipboard successfully!', 'success');
+            showMessage('File downloaded and copied to clipboard successfully!', 'success');
           } else {
             throw new Error('Copy command failed');
           }
@@ -428,7 +521,9 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   // 匯出按鈕點擊事件
-  exportTxtBtn.addEventListener('click', function() {
+  exportTxtBtn.addEventListener('click', async function() {
+    // Double-check button should be enabled
+    if (this.disabled) return;
     if (!selectedTeamId || !activeTranscriptId) return;
     
     const team = activeTeams.find(t => t.id === selectedTeamId);
@@ -437,39 +532,99 @@ document.addEventListener('DOMContentLoaded', function() {
     const transcript = team.transcripts.find(t => t.id === activeTranscriptId);
     if (!transcript) return;
     
-    const date = new Date(transcript.date);
-    const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
-    
-    let content = '';
-    
-    // 添加標題
-    content += `${team.name} - ${formattedDate}\n\n`;
-    
-    if (transcript.chunks && transcript.chunks.length > 0) {
-      // 添加分段轉錄內容
-      transcript.chunks.forEach(chunk => {
-        const date = new Date(chunk.timestamp);
-        const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+    try {
+      // 顯示載入狀態
+      exportTxtBtn.disabled = true;
+      exportTxtBtn.textContent = '📄 Processing...';
+      
+      const date = new Date(transcript.date);
+      const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+      
+      let content = '';
+      
+      // 添加標題
+      content += `${team.name} - ${formattedDate}\n\n`;
+      
+      if (transcript.chunks && transcript.chunks.length > 0) {
+        // 添加分段轉錄內容
+        transcript.chunks.forEach(chunk => {
+          const date = new Date(chunk.timestamp);
+          const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+          
+          if (chunk.type === 'screenshot') {
+            content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
+          } else {
+            content += `[${formattedTime}] ${chunk.text || chunk.analysis}\n\n`;
+          }
+        });
+      } else {
+        // 添加完整轉錄內容
+        content += transcript.text;
+      }
+      
+      // 1. 創建Blob並下載
+      const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Transcript_${team.name}_${formattedDate}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      // 2. 複製到剪貼簿
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
         
-        if (chunk.type === 'screenshot') {
-          content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
-        } else {
-          content += `[${formattedTime}] ${chunk.text || chunk.analysis}\n\n`;
+        // 顯示成功狀態
+        exportTxtBtn.textContent = '✅ Downloaded & Copied!';
+        setTimeout(() => {
+          exportTxtBtn.textContent = '📄 Export Transcript Only';
+          exportTxtBtn.disabled = false;
+        }, 2000);
+        
+        showMessage('Transcript downloaded and copied to clipboard successfully!', 'success');
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            exportTxtBtn.textContent = '✅ Downloaded & Copied!';
+            setTimeout(() => {
+              exportTxtBtn.textContent = '📄 Export Transcript Only';
+              exportTxtBtn.disabled = false;
+            }, 2000);
+            showMessage('Transcript downloaded and copied to clipboard successfully!', 'success');
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } catch (err) {
+          exportTxtBtn.textContent = '❌ Copy Failed';
+          setTimeout(() => {
+            exportTxtBtn.textContent = '📄 Export Transcript Only';
+            exportTxtBtn.disabled = false;
+          }, 2000);
+          showMessage('Downloaded but failed to copy to clipboard', 'error');
+        } finally {
+          document.body.removeChild(textArea);
         }
-      });
-    } else {
-      // 添加完整轉錄內容
-      content += transcript.text;
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      exportTxtBtn.textContent = '❌ Export Failed';
+      setTimeout(() => {
+        exportTxtBtn.textContent = '📄 Export Transcript Only';
+        exportTxtBtn.disabled = false;
+      }, 2000);
     }
-    
-    // 創建Blob並下載
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${team.name}_${formattedDate}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
   });
   
   // 刪除按鈕點擊事件
@@ -572,40 +727,328 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 調用 Notes Processor
   async function callNotesProcessor(finalPrompt, apiKey, apiEndpoint, model, modelId) {
+    console.log(`Starting API call for Model ${modelId}: ${model}`);
+    const startTime = Date.now();
+    
     try {
-      const response = await fetch(`${apiEndpoint}/chat/completions`, {
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      // Increase timeout for larger models and Gemini
+      let timeoutDuration;
+      const modelLower = model.toLowerCase();
+      if (modelLower.includes('70b') || modelLower.includes('large')) {
+        timeoutDuration = 90000; // 90 seconds for large models
+      } else if (modelLower.includes('gemini')) {
+        timeoutDuration = 60000; // 60 seconds for Gemini models
+      } else {
+        timeoutDuration = 45000; // 45 seconds for others
+      }
+      console.log(`Setting timeout for ${model}: ${timeoutDuration/1000} seconds`);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+      
+      // Check if this is a Gemini model and adjust endpoint if needed
+      const isGeminiModel = model.toLowerCase().includes('gemini');
+      let apiUrl = `${apiEndpoint}/chat/completions`;
+      
+      // Log the request details for debugging
+      console.log(`API Request Details:
+        - URL: ${apiUrl}
+        - Model: ${model}
+        - Is Gemini: ${isGeminiModel}
+        - Prompt length: ${finalPrompt.length} characters`);
+      
+      const requestBody = {
+        model: model,
+        messages: [
+          {
+            role: 'user',
+            content: finalPrompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000
+      };
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            {
-              role: 'user',
-              content: finalPrompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 2000
-        })
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
+      const responseTime = Date.now() - startTime;
+      console.log(`Model ${model} responded in ${responseTime}ms with status: ${response.status}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: response.statusText }));
-        throw new Error(`${errorData.error?.message || errorData.message || 'Unknown error'}`);
+        const errorMessage = errorData.error?.message || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+        console.error(`Model ${model} error:`, errorData);
+        throw new Error(errorMessage);
       }
       
       const data = await response.json();
+      console.log(`Model ${model} response data:`, JSON.stringify(data).substring(0, 200) + '...');
+      
+      // Handle different response formats
+      let messageContent;
+      
+      // Standard OpenAI format
+      if (data.choices && data.choices[0] && data.choices[0].message) {
+        messageContent = data.choices[0].message.content;
+      }
+      // Alternative format (some APIs use this)
+      else if (data.choices && data.choices[0] && data.choices[0].text) {
+        messageContent = data.choices[0].text;
+      }
+      // Gemini might use a different format
+      else if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+        messageContent = data.candidates[0].content.parts ? 
+          data.candidates[0].content.parts.map(p => p.text).join('') : 
+          data.candidates[0].content;
+      }
+      // Direct content field
+      else if (data.content) {
+        messageContent = data.content;
+      }
+      // Response field
+      else if (data.response) {
+        messageContent = data.response;
+      }
+      else {
+        console.error(`Model ${model} returned unrecognized response structure:`, data);
+        throw new Error('Unrecognized response structure from API');
+      }
+      
+      console.log(`Model ${model} successfully processed. Content length: ${messageContent?.length || 0}`);
+      
+      // Check for empty content
+      if (!messageContent || messageContent.trim().length === 0) {
+        console.error(`Model ${model} returned empty content`);
+        throw new Error('Model returned empty response');
+      }
+      
       return {
         modelId,
         model,
-        content: data.choices[0]?.message?.content || 'No processed notes received'
+        content: messageContent
       };
     } catch (error) {
+      const errorTime = Date.now() - startTime;
+      console.error(`Model ${model} failed after ${errorTime}ms:`, error);
+      
+      if (error.name === 'AbortError') {
+        const timeoutSeconds = timeoutDuration / 1000;
+        throw new Error(`Model ${model}: Request timeout after ${timeoutSeconds} seconds`);
+      }
       throw new Error(`Model ${model}: ${error.message}`);
     }
+  }
+
+  // 生成 LLM 分數摘要
+  function generateScoreSummary(results, enabledModels) {
+    const scoreData = [];
+    const allScores = [];
+    
+    // 從每個模型的結果中提取分數
+    results.forEach((result, index) => {
+      const modelInfo = enabledModels[index];
+      if (result.status === 'fulfilled') {
+        const content = result.value.content;
+        const scores = extractScoresFromContent(content);
+        
+        // 尋找總分
+        let totalScore = null;
+        if (scores) {
+          // 查找各種可能的總分鍵 - 優先查找 'Total Score'
+          const totalKeys = ['Total Score', 'Total', '總分', 'Overall', '總體評分', '總評分'];
+          for (const key of totalKeys) {
+            if (scores[key]) {
+              // 提取數值部分
+              const scoreStr = scores[key].toString();
+              const match = scoreStr.match(/(\d+(?:\.\d+)?)/);
+              if (match) {
+                totalScore = parseFloat(match[1]);
+                break;
+              }
+            }
+          }
+        }
+        
+        scoreData.push({
+          modelId: modelInfo.id,
+          model: modelInfo.model,
+          totalScore: totalScore
+        });
+        
+        if (totalScore !== null) {
+          allScores.push(totalScore);
+        }
+      } else {
+        scoreData.push({
+          modelId: modelInfo.id,
+          model: modelInfo.model,
+          totalScore: null
+        });
+      }
+    });
+    
+    if (scoreData.length === 0) {
+      return '';
+    }
+    
+    // 計算平均分 - N/A scores count as 0
+    let totalScore = 0;
+    let scoreCount = scoreData.length; // Count all models, including N/A
+    
+    scoreData.forEach(data => {
+      if (data.totalScore !== null) {
+        totalScore += data.totalScore;
+      }
+      // N/A scores contribute 0 to the total
+    });
+    
+    const avgScore = scoreCount > 0 
+      ? (totalScore / scoreCount).toFixed(2)
+      : 'N/A';
+    
+    // 構建分數摘要 HTML - 使用 Tab 分隔格式
+    let summaryHtml = `
+      <div class="score-summary-section">
+        <hr style="margin: 20px 0; border: 1px solid #e0e0e0;">
+        <h2>📊 LLM Score Summary</h2>
+        <div class="score-summary-table-container">
+          <table class="llm-score-summary-table">
+            <thead>
+              <tr>
+    `;
+    
+    // 添加表頭 - LLM1, LLM2, etc.
+    scoreData.forEach(data => {
+      summaryHtml += `<th>LLM${data.modelId}</th>`;
+    });
+    summaryHtml += `<th>Avg_from_all_LLM</th></tr>`;
+    
+    // 添加模型名稱行
+    summaryHtml += `<tr class="model-names">`;
+    scoreData.forEach(data => {
+      summaryHtml += `<td class="model-name">${data.model}</td>`;
+    });
+    summaryHtml += `<td class="model-name">Average</td></tr>`;
+    
+    summaryHtml += `</thead><tbody><tr>`;
+    
+    // 添加分數行
+    scoreData.forEach(data => {
+      const displayScore = data.totalScore !== null ? data.totalScore : 'N/A';
+      summaryHtml += `<td class="score-cell">${displayScore}</td>`;
+    });
+    summaryHtml += `<td class="score-cell avg-score">${avgScore}</td>`;
+    
+    summaryHtml += `
+            </tr>
+          </tbody>
+        </table>
+        <div class="score-summary-note">
+          <p>Note: Scores are extracted from LLM responses. "N/A" indicates no score was found or model failed.</p>
+        </div>
+      </div>
+    </div>
+    `;
+    
+    return summaryHtml;
+  }
+  
+  // 從內容中提取分數
+  function extractScoresFromContent(content) {
+    const scores = {};
+    
+    // 首先嘗試直接匹配 "Total Score: X/Y" 或類似格式
+    const totalScorePatterns = [
+      /Total\s+Score\s*[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/i,
+      /總分\s*[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/i,
+      /Overall\s+Score\s*[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/i,
+      /總體評分\s*[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/i,
+      /\*\*Total\s+Score\s*[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)\*\*/i
+    ];
+    
+    for (const pattern of totalScorePatterns) {
+      const match = content.match(pattern);
+      if (match) {
+        scores['Total Score'] = `${match[1]}/${match[2]}`;
+        break;
+      }
+    }
+    
+    // 定義可能的分數模式
+    const scorePatterns = [
+      // 英文模式
+      /(?:Score|Rating|Grade|Points?)[\s:：]+(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+))?/gi,
+      /(\w+(?:\s+\w+)*?)[\s:：]+(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+))?(?:\s*(?:points?|分))?/gi,
+      // 中文模式
+      /(?:評分|分數|得分|成績)[\s:：]+(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+))?/gi,
+      /([\u4e00-\u9fa5]+)[\s:：]+(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+))?(?:\s*分)?/gi,
+      // 表格或列表格式
+      /[-•*]\s*(\w+(?:\s+\w+)*?)[\s:：]+(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+))?/gi,
+      // JSON 格式
+      /"(\w+)":\s*(\d+(?:\.\d+)?)/gi
+    ];
+    
+    // 常見的評分項目關鍵詞
+    const scoringCriteria = [
+      // 英文
+      'Innovation', 'Technical', 'Presentation', 'Business Model', 'Market Potential',
+      'Team', 'Execution', 'Impact', 'Scalability', 'Feasibility', 'Overall', 'Total',
+      // 中文
+      '創新性', '技術', '展示', '商業模式', '市場潛力', '團隊', '執行力', '影響力',
+      '可擴展性', '可行性', '總分', '總體評分'
+    ];
+    
+    // 嘗試使用不同的模式提取分數
+    scorePatterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        const criteria = match[1];
+        const score = match[2];
+        const maxScore = match[3];
+        
+        // 檢查是否為有效的評分項目
+        const isValidCriteria = scoringCriteria.some(keyword => 
+          criteria.toLowerCase().includes(keyword.toLowerCase())
+        );
+        
+        if (isValidCriteria || (score && parseFloat(score) <= 100)) {
+          const formattedScore = maxScore ? `${score}/${maxScore}` : score;
+          // 避免覆蓋已經找到的 Total Score
+          if (!(criteria.toLowerCase().includes('total') && scores['Total Score'])) {
+            scores[criteria] = formattedScore;
+          }
+        }
+      }
+    });
+    
+    // 如果沒有找到分數，嘗試更寬鬆的匹配
+    if (Object.keys(scores).length === 0) {
+      // 查找任何數字後跟"分"或"points"的模式
+      const simplePattern = /(\d+(?:\.\d+)?)\s*(?:分|points?|\/\s*\d+)/gi;
+      const lines = content.split('\n');
+      
+      lines.forEach(line => {
+        scoringCriteria.forEach(criteria => {
+          if (line.includes(criteria)) {
+            const match = simplePattern.exec(line);
+            if (match) {
+              scores[criteria] = match[1];
+            }
+          }
+        });
+      });
+    }
+    
+    return scores;
   }
   
   // 顯示處理後的筆記結果（多模型）
@@ -627,31 +1070,36 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
         `;
       } else {
+        console.error(`Model ${modelInfo.id} (${modelInfo.model}) failed:`, result.reason);
         resultsHtml += `
           <div class="model-result model-error">
             <h3>Model ${modelInfo.id}: ${modelInfo.model}</h3>
             <div class="model-result-error">
-              Error: ${result.reason.message}
+              <strong>Error:</strong> ${result.reason.message}
+              <br><small>Check browser console for detailed error information</small>
             </div>
           </div>
         `;
       }
     });
     
+    // 生成 LLM 分數摘要
+    const scoreSummaryHtml = generateScoreSummary(results, enabledModels);
+    
     // 在詳情內容前面插入處理後的筆記
     detailContent.innerHTML = `
       <div class="processed-notes-results">
         <div class="notes-header">
           <h2>📝 Processed Meeting Notes</h2>
-          <button id="exportNotesBtn" class="btn btn-action btn-sm">📁 Export All Notes</button>
+          <button id="exportNotesBtn" class="btn btn-action btn-sm">📁 Export AI Analysis</button>
         </div>
         <div class="processed-notes-container">
           ${resultsHtml}
         </div>
         <hr style="margin: 20px 0; border: 1px solid #e0e0e0;">
-        <h2>Original Transcript</h2>
+        <h2>Original Transcript Preview</h2>
       </div>
-    ` + originalContent;
+    ` + originalContent + scoreSummaryHtml;
     
     // 為新的export按鈕添加事件監聽器
     const exportNotesBtn = document.getElementById('exportNotesBtn');
@@ -663,7 +1111,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // 匯出處理後的筆記結果（多模型）
-  function exportProcessedNotesMultiple(results, enabledModels) {
+  async function exportProcessedNotesMultiple(results, enabledModels) {
     if (!selectedTeamId || !activeTranscriptId || !results || results.length === 0) {
       alert('No processed notes to export.');
       return;
@@ -675,18 +1123,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const transcript = team.transcripts.find(t => t.id === activeTranscriptId);
     if (!transcript) return;
     
-    const date = new Date(transcript.date);
-    const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
-    const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    const exportBtn = document.getElementById('exportNotesBtn');
     
-    let content = '';
-    
-    // 添加標題
-    content += `Meeting Notes Summary\n`;
-    content += `Team: ${team.name}\n`;
-    content += `Date: ${formattedDate} ${formattedTime}\n`;
-    content += `Generated: ${new Date().toLocaleString()}\n`;
-    content += `${'='.repeat(60)}\n\n`;
+    try {
+      // 顯示載入狀態
+      if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.textContent = '📁 Processing...';
+      }
+      
+      const date = new Date(transcript.date);
+      const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+      const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+      
+      let content = '';
+      
+      // 添加標題
+      content += `Meeting Notes Summary\n`;
+      content += `Team: ${team.name}\n`;
+      content += `Date: ${formattedDate} ${formattedTime}\n`;
+      content += `Generated: ${new Date().toLocaleString()}\n`;
+      content += `${'='.repeat(60)}\n\n`;
     
     // 添加處理後的筆記內容（多模型）
     results.forEach((result, index) => {
@@ -705,6 +1162,91 @@ document.addEventListener('DOMContentLoaded', function() {
     
     content += `${'='.repeat(60)}\n`;
     
+    // 添加分數摘要 - 使用 Tab 分隔格式
+    const scoreDataForExport = [];
+    const allScoresForExport = [];
+    
+    results.forEach((result, index) => {
+      const modelInfo = enabledModels[index];
+      if (result.status === 'fulfilled') {
+        const scores = extractScoresFromContent(result.value.content);
+        
+        // 尋找總分
+        let totalScore = null;
+        if (scores) {
+          // 查找各種可能的總分鍵 - 優先查找 'Total Score'
+          const totalKeys = ['Total Score', 'Total', '總分', 'Overall', '總體評分', '總評分'];
+          for (const key of totalKeys) {
+            if (scores[key]) {
+              const scoreStr = scores[key].toString();
+              const match = scoreStr.match(/(\d+(?:\.\d+)?)/);
+              if (match) {
+                totalScore = parseFloat(match[1]);
+                break;
+              }
+            }
+          }
+        }
+        
+        scoreDataForExport.push({
+          modelId: modelInfo.id,
+          model: modelInfo.model,
+          totalScore: totalScore
+        });
+        
+        if (totalScore !== null) {
+          allScoresForExport.push(totalScore);
+        }
+      } else {
+        scoreDataForExport.push({
+          modelId: modelInfo.id,
+          model: modelInfo.model,
+          totalScore: null
+        });
+      }
+    });
+    
+    if (scoreDataForExport.length > 0) {
+      // 計算平均分 - N/A scores count as 0
+      let totalScoreForExport = 0;
+      let scoreCountForExport = scoreDataForExport.length; // Count all models, including N/A
+      
+      scoreDataForExport.forEach(data => {
+        if (data.totalScore !== null) {
+          totalScoreForExport += data.totalScore;
+        }
+        // N/A scores contribute 0 to the total
+      });
+      
+      const avgScore = scoreCountForExport > 0 
+        ? (totalScoreForExport / scoreCountForExport).toFixed(2)
+        : 'N/A';
+      
+      content += `\nLLM Score Summary:\n`;
+      content += `${'-'.repeat(60)}\n`;
+      
+      // 建立表頭行
+      let headerRow = '';
+      let modelRow = '';
+      let scoreRow = '';
+      
+      scoreDataForExport.forEach(data => {
+        headerRow += `LLM${data.modelId}\t`;
+        modelRow += `${data.model}\t`;
+        scoreRow += `${data.totalScore !== null ? data.totalScore : 'N/A'}\t`;
+      });
+      
+      headerRow += 'Avg_from_all_LLM';
+      modelRow += 'Average';
+      scoreRow += avgScore;
+      
+      content += headerRow + '\n';
+      content += modelRow + '\n';
+      content += scoreRow + '\n';
+      
+      content += `${'='.repeat(60)}\n`;
+    }
+    
     // 添加原始轉錄摘要（可選）
     const transcriptText = transcript.text || transcript.chunks?.map(chunk => {
       if (chunk.type === 'screenshot') {
@@ -719,17 +1261,80 @@ document.addEventListener('DOMContentLoaded', function() {
     content += `${'-'.repeat(28)}\n`;
     content += `${transcriptPreview}`;
     
-    // 創建Blob並下載
-    const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Meeting_Notes_${team.name}_${formattedDate}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    // 顯示成功訊息
-    console.log('Processed notes exported successfully');
+      // 1. 創建Blob並下載
+      const blob = new Blob([content], { type: 'text/plain; charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `AI_Analysis_${team.name}_${formattedDate}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      // 2. 複製到剪貼簿
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        
+        // 顯示成功狀態
+        if (exportBtn) {
+          exportBtn.textContent = '✅ Downloaded & Copied!';
+          setTimeout(() => {
+            exportBtn.textContent = '📁 Export AI Analysis';
+            exportBtn.disabled = false;
+          }, 2000);
+        }
+        
+        showMessage('AI analysis downloaded and copied to clipboard successfully!', 'success');
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            if (exportBtn) {
+              exportBtn.textContent = '✅ Downloaded & Copied!';
+              setTimeout(() => {
+                exportBtn.textContent = '📁 Export AI Analysis';
+                exportBtn.disabled = false;
+              }, 2000);
+            }
+            showMessage('AI analysis downloaded and copied to clipboard successfully!', 'success');
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } catch (err) {
+          if (exportBtn) {
+            exportBtn.textContent = '❌ Copy Failed';
+            setTimeout(() => {
+              exportBtn.textContent = '📁 Export AI Analysis';
+              exportBtn.disabled = false;
+            }, 2000);
+          }
+          showMessage('Downloaded but failed to copy to clipboard', 'error');
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      
+      console.log('Processed notes exported successfully');
+    } catch (error) {
+      console.error('Export failed:', error);
+      if (exportBtn) {
+        exportBtn.textContent = '❌ Export Failed';
+        setTimeout(() => {
+          exportBtn.textContent = '📁 Export AI Analysis';
+          exportBtn.disabled = false;
+        }, 2000);
+      }
+      showMessage('Failed to export AI analysis', 'error');
+    }
   }
   
   // 顯示提示消息的函數
@@ -795,4 +1400,10 @@ document.addEventListener('DOMContentLoaded', function() {
   loadTeamSelector();
   loadRecentTranscripts();
   clearTranscriptDetail();
+  
+  // Extra safety: ensure buttons are disabled on load
+  copyToClipboardBtn.disabled = true;
+  exportTxtBtn.disabled = true;
+  processNotesBtn.disabled = true;
+  deleteTranscriptBtn.disabled = true;
 }); 

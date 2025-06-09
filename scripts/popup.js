@@ -757,6 +757,10 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 初始載入團隊選擇
   loadTeamSelect();
+  
+  // Add event listeners for auto-save on API Key and Endpoint inputs
+  document.getElementById('apiKeyInput').addEventListener('input', autoSaveApiSettings);
+  document.getElementById('apiEndpointInput').addEventListener('input', autoSaveApiSettings);
 });
 
 // Helper function to show popup messages
@@ -817,6 +821,8 @@ function loadSettings() {
   const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
   const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false'; // Default to true
   const enableAudioRerouting = localStorage.getItem('enable_audio_rerouting') !== 'false'; // Default to true
+  const screenshotInterval = parseInt(localStorage.getItem('screenshot_interval')) || 10;
+  const transcriptionInterval = parseInt(localStorage.getItem('transcription_interval')) || 10;
   
   // Load User Prompt Template setting
   const userPromptTemplate = localStorage.getItem('user_prompt_template') || DEFAULT_USER_PROMPT_TEMPLATE;
@@ -834,6 +840,8 @@ function loadSettings() {
   document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
   document.getElementById('enableScreenshotAnalysis').checked = enableScreenshotAnalysis;
   document.getElementById('enableAudioRerouting').checked = enableAudioRerouting;
+  document.getElementById('screenshotIntervalInput').value = screenshotInterval;
+  document.getElementById('transcriptionIntervalInput').value = transcriptionInterval;
   
   // Set model enable checkboxes
   document.getElementById('enableModel1').checked = enableModel1;
@@ -863,7 +871,15 @@ async function testAPIConnection(showMessage = true) {
   const screenshotModelSelect = document.getElementById('screenshotModelSelect');
   
   const apiKey = apiKeyInput.value.trim();
-  const apiEndpoint = apiEndpointInput.value.trim() || 'https://api.openai.com/v1'; // Default if empty
+  let apiEndpoint = apiEndpointInput.value.trim() || 'https://api.openai.com/v1'; // Default if empty
+  
+  // Normalize API endpoint - ensure it ends with /v1 and not /v1/
+  if (apiEndpoint) {
+    apiEndpoint = apiEndpoint.replace(/\/+$/, '');
+    if (!apiEndpoint.endsWith('/v1') && !/\/v\d+$/.test(apiEndpoint)) {
+      apiEndpoint = apiEndpoint + '/v1';
+    }
+  }
   
   if (!apiKey) {
     if (showMessage) showPopupMessage('Please enter your OpenAI API Key.', 'error');
@@ -1050,7 +1066,15 @@ document.getElementById('testScreenshotBtn').addEventListener('click', async fun
 // Event listener for Audio Diagnostic button
 document.getElementById('testAudioBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
-  const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  
+  // Normalize API endpoint - ensure it ends with /v1 and not /v1/
+  if (apiEndpoint) {
+    apiEndpoint = apiEndpoint.replace(/\/+$/, '');
+    if (!apiEndpoint.endsWith('/v1') && !/\/v\d+$/.test(apiEndpoint)) {
+      apiEndpoint = apiEndpoint + '/v1';
+    }
+  }
   
   console.log('[POPUP_SCRIPT] Running audio transcription diagnostic...');
   
@@ -1170,10 +1194,63 @@ document.getElementById('testAudioBtn').addEventListener('click', async function
   }
 });
 
+// Auto-save function for API Key and Endpoint
+function autoSaveApiSettings() {
+  const apiKey = document.getElementById('apiKeyInput').value.trim();
+  let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  
+  // Normalize API endpoint - ensure it ends with /v1 and not /v1/
+  if (apiEndpoint) {
+    // Remove trailing slashes
+    apiEndpoint = apiEndpoint.replace(/\/+$/, '');
+    
+    // Ensure it ends with /v1
+    if (!apiEndpoint.endsWith('/v1')) {
+      // If it ends with /v2, /v3, etc., leave it as is
+      if (!/\/v\d+$/.test(apiEndpoint)) {
+        // If it doesn't end with /vX pattern, add /v1
+        apiEndpoint = apiEndpoint + '/v1';
+      }
+    }
+    
+    // Update the input field with the normalized value
+    document.getElementById('apiEndpointInput').value = apiEndpoint;
+  }
+  
+  // Save to localStorage
+  localStorage.setItem('openai_api_key', apiKey);
+  localStorage.setItem('openai_api_endpoint', apiEndpoint);
+  
+  // Also save to chrome.storage.local for background script access
+  chrome.storage.local.set({
+    'openai_api_key': apiKey,
+    'openai_api_endpoint': apiEndpoint
+  }, function() {
+    if (chrome.runtime.lastError) {
+      console.error('Error auto-saving API settings to chrome.storage.local:', chrome.runtime.lastError);
+    } else {
+      console.log('API settings auto-saved');
+    }
+  });
+  
+  // If both fields have values, try to load models
+  if (apiKey && apiEndpoint) {
+    testAPIConnection(false); // false to not show success message
+  }
+}
+
 // Event listener for Save Settings button
 document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
-  const apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  
+  // Normalize API endpoint - ensure it ends with /v1 and not /v1/
+  if (apiEndpoint) {
+    apiEndpoint = apiEndpoint.replace(/\/+$/, '');
+    if (!apiEndpoint.endsWith('/v1') && !/\/v\d+$/.test(apiEndpoint)) {
+      apiEndpoint = apiEndpoint + '/v1';
+    }
+  }
   const selectedModel1 = document.getElementById('modelSelect1').value;
   const selectedModel2 = document.getElementById('modelSelect2').value;
   const selectedModel3 = document.getElementById('modelSelect3').value;
@@ -1187,6 +1264,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
   const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
   const enableAudioRerouting = document.getElementById('enableAudioRerouting').checked;
+  const screenshotInterval = parseInt(document.getElementById('screenshotIntervalInput').value) || 10;
+  const transcriptionInterval = parseInt(document.getElementById('transcriptionIntervalInput').value) || 10;
   
   // Get User Prompt Template setting
   const userPromptTemplate = document.getElementById('userPromptTemplate').value.trim();
@@ -1220,6 +1299,19 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     showPopupMessage('Please enable and select at least one model.', 'error');
     return;
   }
+  
+  // Validate intervals
+  if (screenshotInterval < 5 || screenshotInterval > 300) {
+    showPopupMessage('Screenshot interval must be between 5 and 300 seconds.', 'error');
+    document.getElementById('screenshotIntervalInput').focus();
+    return;
+  }
+  
+  if (transcriptionInterval < 5 || transcriptionInterval > 60) {
+    showPopupMessage('Transcription interval must be between 5 and 60 seconds.', 'error');
+    document.getElementById('transcriptionIntervalInput').focus();
+    return;
+  }
 
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
@@ -1237,6 +1329,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('enable_audio_rerouting', enableAudioRerouting.toString());
   localStorage.setItem('download_audio_files', downloadFiles.toString());
   localStorage.setItem('transcription_language', document.getElementById('languageSelect').value);
+  localStorage.setItem('screenshot_interval', screenshotInterval.toString());
+  localStorage.setItem('transcription_interval', transcriptionInterval.toString());
   
   // Save User Prompt Template setting
   localStorage.setItem('user_prompt_template', userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE);
@@ -1271,7 +1365,9 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     'enable_audio_rerouting': enableAudioRerouting.toString(),
     'download_audio_files': downloadFiles.toString(),
     'transcription_language': document.getElementById('languageSelect').value,
-    'user_prompt_template': userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE
+    'user_prompt_template': userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE,
+    'screenshot_interval': screenshotInterval.toString(),
+    'transcription_interval': transcriptionInterval.toString()
   };
   
   chrome.storage.local.set(settingsToStore, function() {

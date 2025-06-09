@@ -118,7 +118,19 @@
         <label class="checkbox-label">
           <input type="checkbox" id="enableScreenshotAnalysis" checked> Enable Screenshot Analysis
         </label>
-        <div class="setting-description">Capture and analyze screenshots every 10 seconds during recording</div>
+        <div class="setting-description">Capture and analyze screenshots periodically during recording</div>
+      </div>
+      <div class="setting-group">
+        <label for="screenshotIntervalInput">Screenshot Capture Interval (seconds):</label>
+        <input type="number" id="screenshotIntervalInput" class="input-field" 
+               min="5" max="300" value="10" step="5">
+        <div class="setting-description">How often to capture and analyze screenshots (5-300 seconds)</div>
+      </div>
+      <div class="setting-group">
+        <label for="transcriptionIntervalInput">Transcription Interval (seconds):</label>
+        <input type="number" id="transcriptionIntervalInput" class="input-field" 
+               min="5" max="60" value="10" step="5">
+        <div class="setting-description">How often to process audio for transcription (5-60 seconds)</div>
       </div>
       <div class="setting-group">
         <label class="checkbox-label">
@@ -155,10 +167,14 @@
       </div>
       
       <div class="setting-group">
-        <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
-        <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
-        <button id="testScreenshotBtn" class="btn btn-secondary">Test Screenshot</button>
-        <button id="testAudioBtn" class="btn btn-secondary">Test Audio</button>
+        <div class="save-settings-row">
+          <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+        </div>
+        <div class="test-buttons-row">
+          <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
+          <button id="testScreenshotBtn" class="btn btn-secondary">Test Screenshot</button>
+          <button id="testAudioBtn" class="btn btn-secondary">Test Audio</button>
+        </div>
       </div>
     </div>
     
