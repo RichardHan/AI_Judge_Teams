@@ -128,6 +128,22 @@ h2 {
   background-color: #e9ecef;
 }
 
+.btn-icon-small.btn-danger {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.btn-icon-small.btn-danger:hover:not(:disabled) {
+  background-color: #f5c6cb;
+  border-color: #f1b0b7;
+}
+
+.btn-icon-small:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-primary-compact {
   background-color: #007bff;
   color: white;

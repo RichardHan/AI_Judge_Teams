@@ -178,6 +178,9 @@ document.addEventListener('DOMContentLoaded', function() {
       teamSelect.value = teamToSelect;
       console.log(`[POPUP_SCRIPT] Team dropdown set to: ${teamToSelect}`);
     }
+    
+    // 更新刪除按鈕狀態
+    updateDeleteButtonState();
   }
   
   // 獲取當前捕獲狀態
@@ -407,6 +410,82 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   
+  // 刪除團隊按鈕點擊事件
+  document.getElementById('deleteTeamBtn').addEventListener('click', function() {
+    const selectedTeamId = teamSelect.value;
+    if (!selectedTeamId) {
+      showPopupMessage('Please select a team to delete', 'error');
+      return;
+    }
+    
+    // 獲取最新的團隊數據
+    activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
+    const teamToDelete = activeTeams.find(team => team.id === selectedTeamId);
+    
+    if (!teamToDelete) {
+      showPopupMessage('Team not found', 'error');
+      return;
+    }
+    
+    // 確認刪除
+    const confirmMessage = `Are you sure you want to delete the team "${teamToDelete.name}"?\n\nThis will permanently delete all ${teamToDelete.transcripts ? teamToDelete.transcripts.length : 0} transcript(s) for this team.`;
+    
+    if (confirm(confirmMessage)) {
+      // 過濾掉要刪除的團隊
+      activeTeams = activeTeams.filter(team => team.id !== selectedTeamId);
+      
+      // 保存更新後的團隊列表
+      localStorage.setItem('teams', JSON.stringify(activeTeams));
+      
+      // 清除保存的選擇如果刪除的是當前選中的團隊
+      if (localStorage.getItem('selected_team_id') === selectedTeamId) {
+        localStorage.removeItem('selected_team_id');
+      }
+      
+      console.log(`[POPUP_SCRIPT] Team deleted: ${teamToDelete.name} (${selectedTeamId})`);
+      
+      // 重新載入團隊選擇下拉列表
+      loadTeamSelect();
+      
+      // 如果還有其他團隊，選擇第一個
+      if (activeTeams.length > 0) {
+        const newSelectedTeam = activeTeams[0];
+        teamSelect.value = newSelectedTeam.id;
+        
+        // 通知背景腳本更新活躍團隊
+        chrome.runtime.sendMessage(
+          { action: 'setActiveTeam', teamId: newSelectedTeam.id },
+          function(response) {
+            if (response.success) {
+              currentState.activeTeamId = newSelectedTeam.id;
+              localStorage.setItem('selected_team_id', newSelectedTeam.id);
+              console.log('[POPUP_SCRIPT] Active team switched to:', newSelectedTeam.id);
+            }
+          }
+        );
+      } else {
+        // 沒有團隊了，重置狀態
+        currentState.activeTeamId = null;
+        chrome.runtime.sendMessage({ action: 'setActiveTeam', teamId: null });
+      }
+      
+      showPopupMessage(`Team "${teamToDelete.name}" has been deleted`, 'success');
+      updateDeleteButtonState();
+    }
+  });
+  
+  // 更新刪除按鈕狀態
+  function updateDeleteButtonState() {
+    const deleteBtn = document.getElementById('deleteTeamBtn');
+    const selectedTeamId = teamSelect.value;
+    
+    // 如果沒有選中團隊或正在錄音，禁用刪除按鈕
+    deleteBtn.disabled = !selectedTeamId || currentState.isCapturing;
+  }
+  
+  // 在團隊選擇改變時更新刪除按鈕狀態
+  teamSelect.addEventListener('change', updateDeleteButtonState);
+  
   // 更新UI狀態
   function updateUIState() {
     const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false';
@@ -424,6 +503,9 @@ document.addEventListener('DOMContentLoaded', function() {
       statusDisplay.textContent = `Ready ${enableScreenshotAnalysis ? '📸' : ''}`;
       statusDisplay.style.color = 'green';
     }
+    
+    // 更新刪除按鈕狀態
+    updateDeleteButtonState();
   }
   
   // 接收背景腳本的訊息

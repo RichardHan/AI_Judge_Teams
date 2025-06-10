@@ -113,8 +113,18 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
     
-    // 為第一個團隊添加一個轉錄記錄
-    const team = activeTeams[0];
+    // 獲取當前選中的團隊，如果沒有選中則使用第一個團隊
+    let team;
+    if (selectedTeamId) {
+      team = activeTeams.find(t => t.id === selectedTeamId);
+      if (!team) {
+        // 如果找不到選中的團隊，使用第一個
+        team = activeTeams[0];
+      }
+    } else {
+      // 沒有選中任何團隊，使用第一個
+      team = activeTeams[0];
+    }
     const baseTime = Date.now();
     
     // 創建更豐富的測試數據，包含音頻轉錄和截圖分析
@@ -205,6 +215,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.location.href = 'popup.html';
   });
   
+  // Export All Teams button event
+  const exportAllTeamsBtn = document.getElementById('exportAllTeamsBtn');
+  if (exportAllTeamsBtn) {
+    exportAllTeamsBtn.addEventListener('click', function() {
+      exportAllTeamsTranscripts();
+    });
+  }
+  
   // Process Notes 按鈕事件
   processNotesBtn.addEventListener('click', async function() {
     if (!selectedTeamId || !activeTranscriptId) return;
@@ -246,6 +264,12 @@ document.addEventListener('DOMContentLoaded', function() {
       selectedTeamId = this.value;
       loadRecentTranscripts();
       clearTranscriptDetail();
+      
+      // Show/hide export all teams button
+      const exportAllTeamsBtn = document.getElementById('exportAllTeamsBtn');
+      if (exportAllTeamsBtn) {
+        exportAllTeamsBtn.style.display = selectedTeamId === '' ? 'inline-block' : 'none';
+      }
     });
   }
   
@@ -461,7 +485,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Prompt_Transcript_${team.name}_${formattedDate}.txt`;
+      a.download = `${team.name}_Prompt_Transcript_${formattedDate}.txt`;
       a.click();
       URL.revokeObjectURL(url);
       
@@ -567,7 +591,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Transcript_${team.name}_${formattedDate}.txt`;
+      a.download = `${team.name}_Transcript_${formattedDate}.txt`;
       a.click();
       URL.revokeObjectURL(url);
       
@@ -664,6 +688,99 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!text) return '';
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
+  }
+  
+  // Export all teams transcripts function
+  function exportAllTeamsTranscripts() {
+    const exportAllTeamsBtn = document.getElementById('exportAllTeamsBtn');
+    if (!exportAllTeamsBtn) return;
+    
+    exportAllTeamsBtn.disabled = true;
+    exportAllTeamsBtn.textContent = '⏳ Exporting...';
+    
+    try {
+      let exportCount = 0;
+      const allTeams = JSON.parse(localStorage.getItem('teams')) || [];
+      
+      // Process each team
+      allTeams.forEach(team => {
+        if (team.transcripts && team.transcripts.length > 0) {
+          team.transcripts.forEach(transcript => {
+            // Format the transcript content
+            let content = '';
+            
+            // Add header
+            const date = new Date(transcript.date);
+            content += `Team: ${team.name}\n`;
+            content += `Date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}\n`;
+            content += `${'='.repeat(60)}\n\n`;
+            
+            // Add transcript chunks
+            if (transcript.chunks && transcript.chunks.length > 0) {
+              transcript.chunks.forEach(chunk => {
+                const chunkTime = new Date(chunk.timestamp);
+                const timeStr = chunkTime.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit',
+                  hour12: false 
+                });
+                
+                if (chunk.type === 'screenshot') {
+                  content += `[${timeStr}] 📸 Screenshot Analysis:\n${chunk.text}\n\n`;
+                } else {
+                  content += `[${timeStr}] ${chunk.text}\n\n`;
+                }
+              });
+            } else if (transcript.text) {
+              // Fallback for older format
+              content += transcript.text + '\n';
+            }
+            
+            // Create filename following the pattern: {Team Name}_{Date}_{Time}.txt
+            const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+            const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+            const filename = `${team.name}_${dateStr}_${timeStr}.txt`;
+            
+            // Create and download the file
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            
+            // Add delay between downloads to prevent browser blocking
+            setTimeout(() => {
+              link.click();
+              URL.revokeObjectURL(url);
+            }, exportCount * 100); // 100ms delay between each file
+            
+            exportCount++;
+          });
+        }
+      });
+      
+      // Show success message
+      if (exportCount > 0) {
+        showMessage(`Successfully exported ${exportCount} transcript(s)`, 'success');
+      } else {
+        showMessage('No transcripts found to export', 'error');
+      }
+      
+      // Reset button
+      setTimeout(() => {
+        exportAllTeamsBtn.textContent = '📦 Export All Teams';
+        exportAllTeamsBtn.disabled = false;
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Export all teams failed:', error);
+      showMessage('Export failed: ' + error.message, 'error');
+      exportAllTeamsBtn.textContent = '❌ Export Failed';
+      setTimeout(() => {
+        exportAllTeamsBtn.textContent = '📦 Export All Teams';
+        exportAllTeamsBtn.disabled = false;
+      }, 2000);
+    }
   }
   
   // Meeting Notes Processing 功能
@@ -1266,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `AI_Analysis_${team.name}_${formattedDate}.txt`;
+      a.download = `${team.name}_AI_Analysis_${formattedDate}.txt`;
       a.click();
       URL.revokeObjectURL(url);
       
@@ -1406,4 +1523,9 @@ document.addEventListener('DOMContentLoaded', function() {
   exportTxtBtn.disabled = true;
   processNotesBtn.disabled = true;
   deleteTranscriptBtn.disabled = true;
+  
+  // Show export all teams button initially since "All Teams" is selected by default
+  if (exportAllTeamsBtn) {
+    exportAllTeamsBtn.style.display = 'inline-block';
+  }
 }); 
