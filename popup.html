@@ -30,6 +30,7 @@
           </select>
           <button id="addTeamBtn" class="btn btn-icon-small" title="Add Team">+</button>
           <button id="deleteTeamBtn" class="btn btn-icon-small btn-danger" title="Delete Team" disabled>🗑️</button>
+          <button id="bulkDeleteBtn" class="btn btn-icon-small btn-danger" title="Bulk Delete Teams" disabled>📋</button>
         </div>
         
         <div class="recording-section">
@@ -59,6 +60,30 @@
         <label for="apiKeyInput">OpenAI API Key:</label>
         <input type="password" id="apiKeyInput" class="input-field" 
                placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="setting-group">
+        <label for="sttApiEndpointInput">API Endpoint (For Speech to Text):</label>
+        <input type="text" id="sttApiEndpointInput" class="input-field" 
+               placeholder="https://api.openai.com/v1 (Default: OpenAI)" value="">
+        <div class="setting-description">Leave empty to use default OpenAI endpoint for speech-to-text transcription</div>
+      </div>
+      <div class="setting-group">
+        <label for="sttApiKeyInput">API Key (For Speech to Text):</label>
+        <input type="password" id="sttApiKeyInput" class="input-field" 
+               placeholder="Leave empty to use main API key" autocomplete="off">
+        <div class="setting-description">Optional: Separate API key for speech-to-text. If empty, will use the main API key above</div>
+      </div>
+      <div class="setting-group">
+        <label for="sttModelInput">Speech-to-Text Model:</label>
+        <input type="text" id="sttModelInput" class="input-field" 
+               placeholder="whisper-1 (Default)" value="">
+        <div class="setting-description">
+          <strong>OpenAI Models:</strong><br>
+          • whisper-1 (Default, stable)<br>
+          • gpt-4o-mini-transcribe (Faster, cheaper)<br>
+          • gpt-4o-transcribe (Most accurate)<br>
+          <strong>Self-hosted:</strong> whisper-tiny, whisper-base, whisper-small, whisper-medium, whisper-large, whisper-large-v2, whisper-large-v3
+        </div>
       </div>
       <div class="setting-group">
         <h3>Meeting Note Helper Models</h3>
@@ -176,6 +201,22 @@
           <button id="testScreenshotBtn" class="btn btn-secondary">Test Screenshot</button>
           <button id="testAudioBtn" class="btn btn-secondary">Test Audio</button>
         </div>
+      </div>
+    </div>
+    
+    <!-- Bulk Delete Panel -->
+    <div id="bulkDeletePanel" class="bulk-delete-panel hidden">
+      <h3>Select Teams to Delete</h3>
+      <div class="bulk-actions">
+        <button id="selectAllBtn" class="btn btn-sm">Select All</button>
+        <button id="deselectAllBtn" class="btn btn-sm">Deselect All</button>
+      </div>
+      <div id="teamListForDelete" class="team-list-delete">
+        <!-- Team checkboxes will be dynamically filled here -->
+      </div>
+      <div class="bulk-actions-bottom">
+        <button id="cancelBulkDeleteBtn" class="btn btn-secondary">Cancel</button>
+        <button id="confirmBulkDeleteBtn" class="btn btn-danger" disabled>Delete Selected</button>
       </div>
     </div>
     

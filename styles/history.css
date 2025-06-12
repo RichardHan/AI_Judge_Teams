@@ -41,7 +41,7 @@ header {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 15px;
 }
 
 .team-selector {
@@ -62,13 +62,15 @@ header {
   border-radius: 4px;
   font-size: 13px;
   background-color: white;
-  min-width: 150px;
+  min-width: 120px;
+  max-width: 200px;
 }
 
 h1 {
   color: #6264A7;
-  font-size: 20px;
+  font-size: 18px;
   margin: 0;
+  white-space: nowrap;
 }
 
 h2 {

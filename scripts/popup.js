@@ -1,3 +1,8 @@
+// Global variables for access in all functions
+let activeTeams = [];
+let currentState = { isCapturing: false, activeTeamId: null };
+let transcriptChunks = [];
+
 // Add feedback message area if not present
 function ensureMessageArea() {
   let msgArea = document.getElementById('popupMessageArea');
@@ -100,8 +105,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const statusDisplay = document.getElementById('status');
   const transcriptContainer = document.getElementById('transcriptContainer');
   
-  let currentState = { isCapturing: false, activeTeamId: null };
-  let transcriptChunks = [];
   let transcriptSaved = false; // 防止重複保存轉錄記錄
   
   // 載入設定
@@ -477,14 +480,201 @@ document.addEventListener('DOMContentLoaded', function() {
   // 更新刪除按鈕狀態
   function updateDeleteButtonState() {
     const deleteBtn = document.getElementById('deleteTeamBtn');
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
     const selectedTeamId = teamSelect.value;
     
     // 如果沒有選中團隊或正在錄音，禁用刪除按鈕
     deleteBtn.disabled = !selectedTeamId || currentState.isCapturing;
+    
+    // Update bulk delete button
+    const teams = JSON.parse(localStorage.getItem('teams')) || [];
+    bulkDeleteBtn.disabled = teams.length === 0 || currentState.isCapturing;
   }
   
   // 在團隊選擇改變時更新刪除按鈕狀態
   teamSelect.addEventListener('change', updateDeleteButtonState);
+  
+  // Bulk Delete Button Click Event
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const bulkDeletePanel = document.getElementById('bulkDeletePanel');
+  const teamListForDelete = document.getElementById('teamListForDelete');
+  const selectAllBtn = document.getElementById('selectAllBtn');
+  const deselectAllBtn = document.getElementById('deselectAllBtn');
+  const cancelBulkDeleteBtn = document.getElementById('cancelBulkDeleteBtn');
+  const confirmBulkDeleteBtn = document.getElementById('confirmBulkDeleteBtn');
+  
+  let selectedTeamsForDelete = new Set();
+  
+  // Show bulk delete panel
+  bulkDeleteBtn.addEventListener('click', function() {
+    // Hide other panels first
+    document.getElementById('historyPanel').classList.add('hidden');
+    document.getElementById('settingsPanel').classList.add('hidden');
+    
+    // Show bulk delete panel
+    bulkDeletePanel.classList.remove('hidden');
+    
+    // Load teams into checkboxes
+    loadTeamsForBulkDelete();
+  });
+  
+  // Load teams for bulk delete
+  function loadTeamsForBulkDelete() {
+    activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
+    teamListForDelete.innerHTML = '';
+    selectedTeamsForDelete.clear();
+    
+    if (activeTeams.length === 0) {
+      teamListForDelete.innerHTML = '<p style="text-align: center; color: #666;">No teams available</p>';
+      return;
+    }
+    
+    activeTeams.forEach(team => {
+      const teamItem = document.createElement('div');
+      teamItem.className = 'team-item-checkbox';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `team-cb-${team.id}`;
+      checkbox.value = team.id;
+      
+      const label = document.createElement('label');
+      label.htmlFor = `team-cb-${team.id}`;
+      label.textContent = `${team.name} (${team.transcripts ? team.transcripts.length : 0} transcripts)`;
+      
+      teamItem.appendChild(checkbox);
+      teamItem.appendChild(label);
+      
+      // Click handler for the entire item
+      teamItem.addEventListener('click', function(e) {
+        if (e.target !== checkbox) {
+          checkbox.checked = !checkbox.checked;
+        }
+        updateTeamSelection(team.id, checkbox.checked);
+      });
+      
+      checkbox.addEventListener('change', function() {
+        updateTeamSelection(team.id, this.checked);
+      });
+      
+      teamListForDelete.appendChild(teamItem);
+    });
+    
+    updateBulkDeleteButtonState();
+  }
+  
+  // Update team selection
+  function updateTeamSelection(teamId, isSelected) {
+    const teamItem = document.querySelector(`#team-cb-${teamId}`).parentElement;
+    
+    if (isSelected) {
+      selectedTeamsForDelete.add(teamId);
+      teamItem.classList.add('selected');
+    } else {
+      selectedTeamsForDelete.delete(teamId);
+      teamItem.classList.remove('selected');
+    }
+    
+    updateBulkDeleteButtonState();
+  }
+  
+  // Update bulk delete button state
+  function updateBulkDeleteButtonState() {
+    const hasSelection = selectedTeamsForDelete.size > 0;
+    confirmBulkDeleteBtn.disabled = !hasSelection;
+    
+    if (hasSelection) {
+      confirmBulkDeleteBtn.textContent = `Delete Selected (${selectedTeamsForDelete.size})`;
+    } else {
+      confirmBulkDeleteBtn.textContent = 'Delete Selected';
+    }
+    
+    // Update bulk delete button in team section
+    bulkDeleteBtn.disabled = activeTeams.length === 0 || currentState.isCapturing;
+  }
+  
+  // Select All button
+  selectAllBtn.addEventListener('click', function() {
+    const checkboxes = teamListForDelete.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+      cb.checked = true;
+      updateTeamSelection(cb.value, true);
+    });
+  });
+  
+  // Deselect All button
+  deselectAllBtn.addEventListener('click', function() {
+    const checkboxes = teamListForDelete.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+      cb.checked = false;
+      updateTeamSelection(cb.value, false);
+    });
+  });
+  
+  // Cancel bulk delete
+  cancelBulkDeleteBtn.addEventListener('click', function() {
+    bulkDeletePanel.classList.add('hidden');
+    selectedTeamsForDelete.clear();
+  });
+  
+  // Confirm bulk delete
+  confirmBulkDeleteBtn.addEventListener('click', function() {
+    if (selectedTeamsForDelete.size === 0) return;
+    
+    const teamsToDelete = activeTeams.filter(team => selectedTeamsForDelete.has(team.id));
+    const totalTranscripts = teamsToDelete.reduce((sum, team) => sum + (team.transcripts ? team.transcripts.length : 0), 0);
+    
+    const confirmMessage = `Are you sure you want to delete ${teamsToDelete.length} team(s)?\n\n` +
+      `Teams to delete:\n${teamsToDelete.map(t => `- ${t.name}`).join('\n')}\n\n` +
+      `This will permanently delete ${totalTranscripts} transcript(s).`;
+    
+    if (confirm(confirmMessage)) {
+      // Filter out teams to delete
+      activeTeams = activeTeams.filter(team => !selectedTeamsForDelete.has(team.id));
+      
+      // Save updated teams
+      localStorage.setItem('teams', JSON.stringify(activeTeams));
+      
+      // Clean up saved selection if needed
+      const savedTeamId = localStorage.getItem('selected_team_id');
+      if (savedTeamId && selectedTeamsForDelete.has(savedTeamId)) {
+        localStorage.removeItem('selected_team_id');
+      }
+      
+      console.log(`[POPUP_SCRIPT] Bulk deleted ${teamsToDelete.length} teams`);
+      
+      // Hide panel
+      bulkDeletePanel.classList.add('hidden');
+      selectedTeamsForDelete.clear();
+      
+      // Reload team select
+      loadTeamSelect();
+      
+      // Update active team if needed
+      if (currentState.activeTeamId && selectedTeamsForDelete.has(currentState.activeTeamId)) {
+        if (activeTeams.length > 0) {
+          const newSelectedTeam = activeTeams[0];
+          teamSelect.value = newSelectedTeam.id;
+          chrome.runtime.sendMessage(
+            { action: 'setActiveTeam', teamId: newSelectedTeam.id },
+            function(response) {
+              if (response.success) {
+                currentState.activeTeamId = newSelectedTeam.id;
+                localStorage.setItem('selected_team_id', newSelectedTeam.id);
+              }
+            }
+          );
+        } else {
+          currentState.activeTeamId = null;
+          chrome.runtime.sendMessage({ action: 'setActiveTeam', teamId: null });
+        }
+      }
+      
+      showPopupMessage(`Successfully deleted ${teamsToDelete.length} team(s)`, 'success');
+      updateDeleteButtonState();
+      updateBulkDeleteButtonState();
+    }
+  });
   
   // 更新UI狀態
   function updateUIState() {
@@ -592,6 +782,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (saveResult) {
           console.log('[POPUP_SCRIPT] Transcript saved successfully from background request');
           showPopupMessage("轉錄已保存到團隊記錄", "success", 3000);
+          
+          // 自動複製轉錄內容到剪貼板（確保團隊資訊已保存）
+          console.log('[POPUP_SCRIPT] Auto-copying transcript to clipboard after successful save');
+          autoCopyTranscriptToClipboard();
+          
           sendResponse({ success: true, message: 'Transcript saved successfully' });
         } else {
           console.error('[POPUP_SCRIPT] Failed to save transcript from background request');
@@ -843,6 +1038,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Add event listeners for auto-save on API Key and Endpoint inputs
   document.getElementById('apiKeyInput').addEventListener('input', autoSaveApiSettings);
   document.getElementById('apiEndpointInput').addEventListener('input', autoSaveApiSettings);
+  document.getElementById('sttApiEndpointInput').addEventListener('input', autoSaveApiSettings);
+  document.getElementById('sttApiKeyInput').addEventListener('input', autoSaveApiSettings);
+  document.getElementById('sttModelInput').addEventListener('input', autoSaveApiSettings);
 });
 
 // Helper function to show popup messages
@@ -898,6 +1096,9 @@ const DEFAULT_USER_PROMPT_TEMPLATE = `You are an expert meeting assistant. Pleas
 function loadSettings() {
   const savedApiKey = localStorage.getItem('openai_api_key') || '';
   const savedApiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
+  const savedSttApiEndpoint = localStorage.getItem('openai_stt_api_endpoint') || '';
+  const savedSttApiKey = localStorage.getItem('openai_stt_api_key') || '';
+  const savedSttModel = localStorage.getItem('openai_transcription_model') || '';
   const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
   const savedLanguage = localStorage.getItem('transcription_language') || '';
   const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
@@ -917,6 +1118,9 @@ function loadSettings() {
 
   document.getElementById('apiKeyInput').value = savedApiKey;
   document.getElementById('apiEndpointInput').value = savedApiEndpoint;
+  document.getElementById('sttApiEndpointInput').value = savedSttApiEndpoint;
+  document.getElementById('sttApiKeyInput').value = savedSttApiKey;
+  document.getElementById('sttModelInput').value = savedSttModel;
   document.getElementById('downloadFilesCheckbox').checked = downloadFiles;
   document.getElementById('languageSelect').value = savedLanguage;
   document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
@@ -1280,6 +1484,9 @@ document.getElementById('testAudioBtn').addEventListener('click', async function
 function autoSaveApiSettings() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  let sttApiEndpoint = document.getElementById('sttApiEndpointInput').value.trim();
+  const sttApiKey = document.getElementById('sttApiKeyInput').value.trim();
+  const sttModel = document.getElementById('sttModelInput').value.trim();
   
   // Normalize API endpoint - ensure it ends with /v1 and not /v1/
   if (apiEndpoint) {
@@ -1299,14 +1506,25 @@ function autoSaveApiSettings() {
     document.getElementById('apiEndpointInput').value = apiEndpoint;
   }
   
+  // STT API endpoint - just remove trailing slashes, no /v1 enforcement
+  if (sttApiEndpoint) {
+    sttApiEndpoint = sttApiEndpoint.replace(/\/+$/, '');
+  }
+  
   // Save to localStorage
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
+  localStorage.setItem('openai_stt_api_endpoint', sttApiEndpoint);
+  localStorage.setItem('openai_stt_api_key', sttApiKey);
+  localStorage.setItem('openai_transcription_model', sttModel);
   
   // Also save to chrome.storage.local for background script access
   chrome.storage.local.set({
     'openai_api_key': apiKey,
-    'openai_api_endpoint': apiEndpoint
+    'openai_api_endpoint': apiEndpoint,
+    'openai_stt_api_endpoint': sttApiEndpoint,
+    'openai_stt_api_key': sttApiKey,
+    'openai_transcription_model': sttModel
   }, function() {
     if (chrome.runtime.lastError) {
       console.error('Error auto-saving API settings to chrome.storage.local:', chrome.runtime.lastError);
@@ -1325,6 +1543,9 @@ function autoSaveApiSettings() {
 document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
+  let sttApiEndpoint = document.getElementById('sttApiEndpointInput').value.trim();
+  const sttApiKey = document.getElementById('sttApiKeyInput').value.trim();
+  const sttModel = document.getElementById('sttModelInput').value.trim();
   
   // Normalize API endpoint - ensure it ends with /v1 and not /v1/
   if (apiEndpoint) {
@@ -1332,6 +1553,11 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     if (!apiEndpoint.endsWith('/v1') && !/\/v\d+$/.test(apiEndpoint)) {
       apiEndpoint = apiEndpoint + '/v1';
     }
+  }
+  
+  // STT API endpoint - just remove trailing slashes, no /v1 enforcement
+  if (sttApiEndpoint) {
+    sttApiEndpoint = sttApiEndpoint.replace(/\/+$/, '');
   }
   const selectedModel1 = document.getElementById('modelSelect1').value;
   const selectedModel2 = document.getElementById('modelSelect2').value;
@@ -1397,6 +1623,9 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
 
   localStorage.setItem('openai_api_key', apiKey);
   localStorage.setItem('openai_api_endpoint', apiEndpoint);
+  localStorage.setItem('openai_stt_api_endpoint', sttApiEndpoint);
+  localStorage.setItem('openai_stt_api_key', sttApiKey);
+  localStorage.setItem('openai_transcription_model', sttModel);
   localStorage.setItem('openai_model1', selectedModel1);
   localStorage.setItem('openai_model2', selectedModel2);
   localStorage.setItem('openai_model3', selectedModel3);
@@ -1432,6 +1661,9 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const settingsToStore = {
     'openai_api_key': apiKey,
     'openai_api_endpoint': apiEndpoint,
+    'openai_stt_api_endpoint': sttApiEndpoint,
+    'openai_stt_api_key': sttApiKey,
+    'openai_transcription_model': sttModel,
     'openai_model': localStorage.getItem('openai_model'),
     'openai_model1': selectedModel1,
     'openai_model2': selectedModel2,
@@ -1475,3 +1707,232 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     userPromptTemplate: userPromptTemplate.length > 50 ? userPromptTemplate.substring(0, 50) + '...' : userPromptTemplate
   });
 });
+
+// Show copy to clipboard button after recording stops
+function showCopyToClipboardButton() {
+  console.log('[POPUP_SCRIPT] showCopyToClipboardButton called');
+  
+  // Check if button already exists
+  let copyBtn = document.getElementById('copyTranscriptBtn');
+  if (copyBtn) {
+    copyBtn.style.display = 'block';
+    return;
+  }
+  
+  // Create the button
+  copyBtn = document.createElement('button');
+  copyBtn.id = 'copyTranscriptBtn';
+  copyBtn.className = 'copy-transcript-btn';
+  copyBtn.innerHTML = '📋 Copy Transcript to Clipboard';
+  copyBtn.style.cssText = `
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: background-color 0.3s;
+  `;
+  
+  // Add hover effect
+  copyBtn.onmouseover = function() {
+    this.style.backgroundColor = '#45a049';
+  };
+  copyBtn.onmouseout = function() {
+    this.style.backgroundColor = '#4CAF50';
+  };
+  
+  // Add click handler
+  copyBtn.addEventListener('click', async function() {
+    console.log('[POPUP_SCRIPT] Copy transcript button clicked');
+    
+    // Disable button and show processing state
+    this.disabled = true;
+    this.innerHTML = '📋 Processing...';
+    
+    try {
+      // Build transcript content
+      let content = '';
+      const team = activeTeams.find(t => t.id === currentState.activeTeamId);
+      const teamName = team ? team.name : 'Unknown Team';
+      const date = new Date();
+      const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+      
+      content += `${teamName} - ${formattedDate}\n\n`;
+      
+      // Add transcript chunks
+      if (transcriptChunks.length > 0) {
+        transcriptChunks.forEach(chunk => {
+          const chunkDate = new Date(chunk.timestamp);
+          const formattedTime = `${chunkDate.getHours().toString().padStart(2, '0')}:${chunkDate.getMinutes().toString().padStart(2, '0')}:${chunkDate.getSeconds().toString().padStart(2, '0')}`;
+          
+          if (chunk.type === 'screenshot' || chunk.type === 'screenshot_analysis') {
+            content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
+          } else {
+            content += `[${formattedTime}] ${chunk.text || chunk.analysis || ''}\n\n`;
+          }
+        });
+      }
+      
+      // Get user prompt template if available
+      const userPromptTemplate = localStorage.getItem('user_prompt_template');
+      let finalContent = '';
+      
+      if (userPromptTemplate && userPromptTemplate.trim()) {
+        // Replace {context} with transcript content
+        finalContent = userPromptTemplate.replace(/{context}/g, content);
+      } else {
+        // Just use transcript content
+        finalContent = content;
+      }
+      
+      // Copy to clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(finalContent);
+        
+        // Show success state
+        this.innerHTML = '✅ Copied to Clipboard!';
+        this.style.backgroundColor = '#28a745';
+        showPopupMessage('Transcript copied to clipboard successfully!', 'success', 2000);
+        
+        // Reset button after 2 seconds
+        setTimeout(() => {
+          this.innerHTML = '📋 Copy Transcript to Clipboard';
+          this.style.backgroundColor = '#4CAF50';
+          this.disabled = false;
+        }, 2000);
+        
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = finalContent;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            this.innerHTML = '✅ Copied to Clipboard!';
+            this.style.backgroundColor = '#28a745';
+            showPopupMessage('Transcript copied to clipboard successfully!', 'success', 2000);
+            
+            setTimeout(() => {
+              this.innerHTML = '📋 Copy Transcript to Clipboard';
+              this.style.backgroundColor = '#4CAF50';
+              this.disabled = false;
+            }, 2000);
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } catch (err) {
+          throw err;
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      
+    } catch (error) {
+      console.error('[POPUP_SCRIPT] Copy to clipboard failed:', error);
+      this.innerHTML = '❌ Copy Failed';
+      this.style.backgroundColor = '#dc3545';
+      showPopupMessage('Failed to copy to clipboard: ' + error.message, 'error', 3000);
+      
+      setTimeout(() => {
+        this.innerHTML = '📋 Copy Transcript to Clipboard';
+        this.style.backgroundColor = '#4CAF50';
+        this.disabled = false;
+      }, 2000);
+    }
+  });
+  
+  // Insert button after transcript container
+  const transcriptContainer = document.getElementById('transcriptContainer');
+  if (transcriptContainer && transcriptContainer.parentNode) {
+    transcriptContainer.parentNode.insertBefore(copyBtn, transcriptContainer.nextSibling);
+  }
+}
+
+// Hide copy to clipboard button
+function hideCopyToClipboardButton() {
+  console.log('[POPUP_SCRIPT] hideCopyToClipboardButton called');
+  const copyBtn = document.getElementById('copyTranscriptBtn');
+  if (copyBtn) {
+    copyBtn.style.display = 'none';
+  }
+}
+
+// Auto copy transcript to clipboard when stop recording
+async function autoCopyTranscriptToClipboard() {
+  console.log('[POPUP_SCRIPT] Auto copying transcript to clipboard');
+  
+  try {
+    // Build transcript content
+    let content = '';
+    const team = activeTeams.find(t => t.id === currentState.activeTeamId);
+    const teamName = team ? team.name : 'Unknown Team';
+    const date = new Date();
+    const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+    
+    content += `${teamName} - ${formattedDate}\n\n`;
+    
+    // Add transcript chunks
+    if (transcriptChunks.length > 0) {
+      transcriptChunks.forEach(chunk => {
+        const chunkDate = new Date(chunk.timestamp);
+        const formattedTime = `${chunkDate.getHours().toString().padStart(2, '0')}:${chunkDate.getMinutes().toString().padStart(2, '0')}:${chunkDate.getSeconds().toString().padStart(2, '0')}`;
+        
+        if (chunk.type === 'screenshot' || chunk.type === 'screenshot_analysis') {
+          content += `[${formattedTime}] [Screenshot Analysis] ${chunk.analysis}\n\n`;
+        } else {
+          content += `[${formattedTime}] ${chunk.text || chunk.analysis || ''}\n\n`;
+        }
+      });
+    }
+    
+    // Auto-copy always uses raw transcript content (no user prompt template)
+    const finalContent = content;
+    
+    // Copy to clipboard
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(finalContent);
+      showPopupMessage('✅ 轉錄內容已自動複製到剪貼板！', 'success', 3000);
+      console.log('[POPUP_SCRIPT] Transcript auto-copied to clipboard successfully');
+    } else {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = finalContent;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+          showPopupMessage('✅ 轉錄內容已自動複製到剪貼板！', 'success', 3000);
+          console.log('[POPUP_SCRIPT] Transcript auto-copied to clipboard (fallback method)');
+        } else {
+          throw new Error('Copy command failed');
+        }
+      } catch (err) {
+        console.error('[POPUP_SCRIPT] Failed to copy using fallback method:', err);
+        showPopupMessage('❌ 自動複製失敗，請手動複製', 'error', 3000);
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
+  } catch (error) {
+    console.error('[POPUP_SCRIPT] Error auto-copying transcript:', error);
+    showPopupMessage('❌ 自動複製失敗，請手動複製', 'error', 3000);
+  }
+}

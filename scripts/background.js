@@ -10,7 +10,9 @@ let captureState = {
   transcriptChunks: [], // 儲存轉錄片段以便popup重新打開時恢復
   lastScreenshotDataUrl: null,
   acceptingTranscriptions: false, // 新增：控制是否接受新的轉錄結果
-  saveScheduled: false // 新增：防止重複保存的標誌
+  saveScheduled: false, // 新增：防止重複保存的標誌
+  pendingApiCalls: 0, // Track pending API calls (transcription & screenshots)
+  saveTimeoutId: null // Store timeout ID for early completion
 };
 
 // 錄音相關
@@ -147,6 +149,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captureState.segmentNumber = 0; // Reset segment counter
         captureState.downloadFiles = message.options.downloadFiles || false; // 設置是否下載檔案
         captureState.transcriptChunks = []; // 重置轉錄片段
+        captureState.pendingApiCalls = 0; // Reset pending API calls counter
         console.log(`[BACKGROUND_SCRIPT] Download files set to: ${captureState.downloadFiles}`);
         console.log('[BACKGROUND_SCRIPT] captureState after updates in startCapture:', JSON.stringify(captureState));
         
@@ -519,8 +522,16 @@ function stopCapturing() {
   if (captureState.transcriptChunks.length > 0 && !captureState.saveScheduled) {
     captureState.saveScheduled = true;
     console.log('[BACKGROUND_SCRIPT] Scheduling transcript save to popup...');
+    console.log('[BACKGROUND_SCRIPT] Will wait up to 10 seconds or until all API calls complete');
+    console.log('[BACKGROUND_SCRIPT] Current pending API calls:', captureState.pendingApiCalls);
     
-    setTimeout(() => {
+    // Function to save transcript
+    const performSave = () => {
+      // Clear the timeout if it exists
+      if (captureState.saveTimeoutId) {
+        clearTimeout(captureState.saveTimeoutId);
+        captureState.saveTimeoutId = null;
+      }
       // Create full text from transcript chunks
       const fullText = captureState.transcriptChunks
         .filter(chunk => chunk.type === 'transcription' && chunk.text)
@@ -551,7 +562,19 @@ function stopCapturing() {
           }
         }
       });
-    }, 5000);
+    };
+    
+    // Set a maximum timeout of 10 seconds
+    captureState.saveTimeoutId = setTimeout(() => {
+      console.log('[BACKGROUND_SCRIPT] Maximum wait time (10s) reached, performing save');
+      performSave();
+    }, 10000);
+    
+    // Check if we can save early (all API calls completed)
+    if (captureState.pendingApiCalls === 0) {
+      console.log('[BACKGROUND_SCRIPT] No pending API calls, performing save immediately');
+      performSave();
+    }
   }
   
   chrome.runtime.sendMessage({
@@ -563,6 +586,47 @@ function stopCapturing() {
   }).catch(err => {
     console.log('[BACKGROUND_SCRIPT] Broadcast message (captureStateChanged) - recipient may not be available:', err.message);
   });
+}
+
+// Check if we can perform early save after API call completes
+function checkAndPerformEarlySave() {
+  if (captureState.saveScheduled && captureState.pendingApiCalls === 0 && captureState.saveTimeoutId) {
+    console.log('[BACKGROUND_SCRIPT] All API calls completed, performing early save');
+    // Clear the timeout and perform save
+    clearTimeout(captureState.saveTimeoutId);
+    captureState.saveTimeoutId = null;
+    
+    // Reuse the performSave logic
+    const fullText = captureState.transcriptChunks
+      .filter(chunk => chunk.type === 'transcription' && chunk.text)
+      .map(chunk => chunk.text)
+      .join(' ');
+    
+    console.log('[BACKGROUND_SCRIPT] Sending saveTranscriptToTeam message to popup (early completion)');
+    console.log('[BACKGROUND_SCRIPT] TeamId:', captureState.activeTeamId);
+    console.log('[BACKGROUND_SCRIPT] Transcript chunks count:', captureState.transcriptChunks.length);
+    console.log('[BACKGROUND_SCRIPT] Full text length:', fullText.length);
+    
+    // Send message to popup to save transcript
+    chrome.runtime.sendMessage({
+      action: 'saveTranscriptToTeam',
+      teamId: captureState.activeTeamId,
+      transcriptChunks: captureState.transcriptChunks,
+      fullText: fullText
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[BACKGROUND_SCRIPT] Error sending saveTranscriptToTeam message:', chrome.runtime.lastError.message);
+        // Fallback to our own save method
+        saveTranscriptToTeamInBackground();
+      } else {
+        console.log('[BACKGROUND_SCRIPT] saveTranscriptToTeam response:', response);
+        if (!response || !response.success) {
+          console.warn('[BACKGROUND_SCRIPT] Popup failed to save transcript, using fallback');
+          saveTranscriptToTeamInBackground();
+        }
+      }
+    });
+  }
 }
 
 // Helper function to save audio blob to a file
@@ -799,6 +863,10 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
       return;
     }
     
+    // Increment pending API calls
+    captureState.pendingApiCalls++;
+    console.log('[BACKGROUND_SCRIPT] Incremented pending API calls to:', captureState.pendingApiCalls, '(screenshot)');
+    
     // 根據詳細程度和語言設置不同的提示詞
     let prompt;
     const isChineseMode = language === 'zh';
@@ -872,10 +940,18 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
         processScreenshotAnalysis(analysis, timestamp);
       } else {
         console.error('[BACKGROUND_SCRIPT] Invalid response from OpenAI API:', data);
+        // Decrement pending API calls on error
+        captureState.pendingApiCalls--;
+        console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot error)');
+        checkAndPerformEarlySave();
       }
     })
     .catch(error => {
       console.error('[BACKGROUND_SCRIPT] Screenshot analysis failed:', error);
+      // Decrement pending API calls on error
+      captureState.pendingApiCalls--;
+      console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot error)');
+      checkAndPerformEarlySave();
     });
     
   }).catch(error => {
@@ -912,6 +988,13 @@ function processScreenshotAnalysis(analysis, timestamp) {
   }).catch(err => {
     console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptUpdated) - recipient may not be available:', err.message);
   });
+  
+  // Decrement pending API calls after successful processing
+  captureState.pendingApiCalls--;
+  console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot success)');
+  
+  // Check if we can perform early save
+  checkAndPerformEarlySave();
 }
 
 // 處理音頻片段的轉錄
@@ -939,20 +1022,29 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     const transcriptionSettings = await Promise.all([
       getFromStorage('openai_api_key'),
       getFromStorage('openai_api_endpoint'),
+      getFromStorage('openai_stt_api_endpoint'),
+      getFromStorage('openai_stt_api_key'),
       getFromStorage('openai_transcription_model'),
       getFromStorage('transcription_language')
     ]);
     
-    const [apiKey, apiEndpoint, transcriptionModel, language] = transcriptionSettings;
-    const endpoint = apiEndpoint || 'https://api.openai.com/v1';
+    const [apiKey, apiEndpoint, sttApiEndpoint, sttApiKey, transcriptionModel, language] = transcriptionSettings;
+    // Use STT-specific endpoint if available, otherwise fallback to main endpoint
+    const endpoint = sttApiEndpoint || apiEndpoint || 'https://api.openai.com/v1';
+    // Use STT-specific API key if available, otherwise fallback to main API key
+    const effectiveApiKey = sttApiKey || apiKey;
     const model = transcriptionModel || 'whisper-1';
     
-    if (!apiKey) {
-      console.warn('[BACKGROUND_SCRIPT] No OpenAI API key found, skipping transcription');
+    if (!effectiveApiKey) {
+      console.warn('[BACKGROUND_SCRIPT] No API key found for transcription (neither main nor STT-specific), skipping transcription');
       return;
     }
     
-    console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}, Language: ${language || 'auto'}`);
+    console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}${sttApiEndpoint ? ' (STT-specific)' : ''}, API Key: ${sttApiKey ? 'STT-specific' : 'Main'}, Language: ${language || 'auto'}`);
+    
+    // Increment pending API calls
+    captureState.pendingApiCalls++;
+    console.log('[BACKGROUND_SCRIPT] Incremented pending API calls to:', captureState.pendingApiCalls);
     
     // 創建FormData進行轉錄
     const formData = new FormData();
@@ -967,7 +1059,7 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     const response = await fetch(`${endpoint}/audio/transcriptions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': `Bearer ${effectiveApiKey}`
       },
       body: formData
     });
@@ -1004,8 +1096,22 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
       console.log('[BACKGROUND_SCRIPT] No transcription text received or text is empty');
     }
     
+    // Decrement pending API calls
+    captureState.pendingApiCalls--;
+    console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls);
+    
+    // Check if we can perform early save
+    checkAndPerformEarlySave();
+    
   } catch (error) {
     console.error('[BACKGROUND_SCRIPT] Audio processing failed:', error);
+    
+    // Decrement pending API calls even on error
+    captureState.pendingApiCalls--;
+    console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(after error)');
+    
+    // Check if we can perform early save
+    checkAndPerformEarlySave();
   }
 }
 
