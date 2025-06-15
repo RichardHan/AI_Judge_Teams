@@ -6,6 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Chrome Extension (Manifest V3) that automatically captures and analyzes Teams meeting content. The extension records audio, transcribes it using OpenAI's Whisper API, captures screenshots, analyzes them with GPT-4 Vision, and provides AI-powered evaluation of team presentations for hackathon judging.
 
+## Recent Updates (2025-01-14)
+
+### STT Provider System
+1. **Provider Selection**: Dropdown selection for Speech-to-Text providers
+   - OpenAI (3 models: whisper-1, gpt-4o-mini-transcribe, gpt-4o-transcribe)
+   - Trend Micro (1 model: whisper-1)
+   - Groq (1 model: whisper-large-v3-turbo)
+   - Custom (any OpenAI-compatible endpoint)
+
+2. **Dynamic Model Selection**: Models update based on selected provider
+   - Each provider shows only compatible models
+   - Custom model option for all providers
+   - Model descriptions for user guidance
+
+3. **Smart Configuration**: 
+   - Automatic endpoint setting based on provider
+   - Provider-specific API key validation
+   - Settings persistence across sessions
+
 ## Recent Updates (2025-01-06)
 
 ### UI/UX Improvements

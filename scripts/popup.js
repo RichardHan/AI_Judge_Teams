@@ -64,38 +64,41 @@ function checkExtensionCapabilities() {
   }
 }
 
-// 頁面載入後執行的初始化函數
+// Initialization function that runs after page load
 document.addEventListener('DOMContentLoaded', function() {
-  console.log('[POPUP_SCRIPT] 頁面載入完成，初始化應用');
+  console.log('[POPUP_SCRIPT] Page loaded, initializing application');
   
-  // 检查扩展状态并显示能力
+  // Check extension capabilities and display status
   checkExtensionCapabilities();
   
-  // 立即從localStorage讀取團隊數據
+  // Load team data from localStorage immediately
   try {
     activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
-    console.log('[POPUP_SCRIPT] 已從localStorage載入團隊數據，團隊數量:', activeTeams.length);
+    console.log('[POPUP_SCRIPT] Loaded session data from localStorage, session count:', activeTeams.length);
     if (activeTeams.length > 0) {
       activeTeams.forEach((team, idx) => {
-        console.log(`[POPUP_SCRIPT] 團隊 ${idx+1}: ${team.name}, 轉錄數: ${team.transcripts ? team.transcripts.length : 0}`);
+        console.log(`[POPUP_SCRIPT] Session ${idx+1}: ${team.name}, transcripts: ${team.transcripts ? team.transcripts.length : 0}`);
       });
     } else {
-      console.log('[POPUP_SCRIPT] 沒有找到團隊數據，將創建空陣列');
+      console.log('[POPUP_SCRIPT] No recording sessions found, initializing empty array');
       activeTeams = [];
-      // 創建一個測試團隊以便使用
-      if (confirm('沒有找到團隊數據，是否創建一個測試團隊?')) {
-        const newTeam = {
-          id: Date.now().toString(),
-          name: "測試團隊",
-          transcripts: []
-        };
-        activeTeams.push(newTeam);
-        localStorage.setItem('teams', JSON.stringify(activeTeams));
-        console.log('[POPUP_SCRIPT] 已創建測試團隊');
+      // Create a default session to get started
+      if (confirm('No recording sessions found. Would you like to create your first session?\n\nEnter a topic or purpose for this recording session.')) {
+        const sessionPurpose = prompt('What is the purpose of this recording session?', 'Meeting Transcription');
+        if (sessionPurpose) {
+          const newTeam = {
+            id: Date.now().toString(),
+            name: sessionPurpose,
+            transcripts: []
+          };
+          activeTeams.push(newTeam);
+          localStorage.setItem('teams', JSON.stringify(activeTeams));
+          console.log('[POPUP_SCRIPT] Created new recording session:', sessionPurpose);
+        }
       }
     }
   } catch (error) {
-    console.error('[POPUP_SCRIPT] 載入團隊數據出錯:', error);
+    console.error('[POPUP_SCRIPT] Error loading session data:', error);
     activeTeams = [];
   }
   
@@ -105,13 +108,13 @@ document.addEventListener('DOMContentLoaded', function() {
   const statusDisplay = document.getElementById('status');
   const transcriptContainer = document.getElementById('transcriptContainer');
   
-  let transcriptSaved = false; // 防止重複保存轉錄記錄
+  let transcriptSaved = false; // Prevent duplicate transcript saves
   
-  // 載入設定
+  // Load settings
   const captureMode = localStorage.getItem('captureMode') || 'segmented';
   loadSettings();
   
-  // 載入隊伍選擇
+  // Load team selection
   function loadTeamSelect() {
     console.log('[POPUP_SCRIPT] Loading team select dropdown...');
     
@@ -123,14 +126,14 @@ document.addEventListener('DOMContentLoaded', function() {
     teamSelect.innerHTML = '';
     
     if (activeTeams.length === 0) {
-      // 如果沒有團隊，顯示提示選項
+      // If no sessions exist, show placeholder option
       const option = document.createElement('option');
       option.value = "";
-      option.textContent = "請先創建一個團隊";
+      option.textContent = "Create a recording session first";
       option.disabled = true;
       option.selected = true;
       teamSelect.appendChild(option);
-      console.log('[POPUP_SCRIPT] No teams found, showing placeholder option');
+      console.log('[POPUP_SCRIPT] No sessions found, showing placeholder option');
       return;
     }
     
@@ -239,7 +242,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const selectedTeamId = teamSelect.value;
     if (!selectedTeamId) {
-      alert('Please select a team first');
+      alert('Please select a recording session first');
       return;
     }
     
@@ -285,6 +288,38 @@ document.addEventListener('DOMContentLoaded', function() {
       } else {
         // 儲存API金鑰 (確保它已儲存)
         localStorage.setItem('openai_api_key', apiKey);
+      }
+      
+      // Check if STT model is selected
+      const sttModel = localStorage.getItem('openai_transcription_model');
+      const sttEndpoint = localStorage.getItem('openai_stt_api_endpoint');
+      
+      // Validate STT configuration
+      if (!sttModel || sttModel.trim() === '') {
+        const modelSelect = document.getElementById('sttModelSelect');
+        const providerSelect = document.getElementById('sttProviderSelect');
+        
+        if (modelSelect && modelSelect.value && modelSelect.value !== '') {
+          // Model is selected in dropdown but not saved yet
+          localStorage.setItem('openai_transcription_model', modelSelect.value);
+        } else {
+          alert('Please select a Speech-to-Text model in the settings.');
+          // Open settings panel
+          document.getElementById('settingsPanel').classList.remove('hidden');
+          return;
+        }
+      }
+      
+      // Validate STT API key
+      const sttApiKey = localStorage.getItem('openai_stt_api_key');
+      if (!sttApiKey && sttEndpoint && sttEndpoint !== 'https://api.openai.com/v1') {
+        // Non-OpenAI endpoint needs its own API key
+        const providerName = sttEndpoint.includes('groq.com') ? 'Groq' : 
+                            sttEndpoint.includes('trendmicro.com') ? 'Trend Micro' : 
+                            'your STT provider';
+        alert(`Please enter the API key for ${providerName} in the STT API Key field.`);
+        document.getElementById('settingsPanel').classList.remove('hidden');
+        return;
       }
       
       // 獲取下載檔案設定
@@ -347,20 +382,24 @@ document.addEventListener('DOMContentLoaded', function() {
         showPopupMessage("錄音已停止，等待所有轉錄處理完成...", "success", 5000);
         
         // 延遲後清除轉錄內容顯示（background會自動保存）
+        // Increase delay to 20 seconds to ensure all saves complete
         setTimeout(function() {
-          transcriptChunks = [];
-          transcriptContainer.innerHTML = '';
-          transcriptSaved = false; // 重置保存狀態
-          chrome.runtime.sendMessage({ action: 'clearTranscripts' }, function(response) {
-            if (chrome.runtime.lastError) {
-              console.warn('[POPUP_SCRIPT] Error sending clearTranscripts message:', chrome.runtime.lastError.message);
-            } else {
-              console.log('[POPUP_SCRIPT] clearTranscripts response:', response);
-            }
+          // First check if there are any pending saves
+          checkAndProcessPendingSaves().then(() => {
+            transcriptChunks = [];
+            transcriptContainer.innerHTML = '';
+            transcriptSaved = false; // 重置保存狀態
+            chrome.runtime.sendMessage({ action: 'clearTranscripts' }, function(response) {
+              if (chrome.runtime.lastError) {
+                console.warn('[POPUP_SCRIPT] Error sending clearTranscripts message:', chrome.runtime.lastError.message);
+              } else {
+                console.log('[POPUP_SCRIPT] clearTranscripts response:', response);
+              }
+            });
+            console.log('[POPUP_SCRIPT] Cleared transcript content display after stopping');
+            showPopupMessage("所有轉錄已處理完成並保存到團隊記錄", "success", 3000);
           });
-          console.log('[POPUP_SCRIPT] Cleared transcript content display after stopping');
-          showPopupMessage("所有轉錄已處理完成並保存到團隊記錄", "success", 3000);
-        }, 6000); // 比background的延遲稍長一點
+        }, 20000); // 20 seconds to ensure all API calls and saves complete
         
       } else {
         console.error('[POPUP_SCRIPT] 停止捕獲失敗:', response ? response.error : '沒有回應');
@@ -369,31 +408,31 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
   
-  // 添加團隊按鈕點擊事件
+  // Add session button click event
   document.getElementById('addTeamBtn').addEventListener('click', function() {
-    const teamName = prompt('Please enter the new team name:');
-    if (teamName) {
-      // 獲取最新的團隊數據
+    const sessionPurpose = prompt('Enter the purpose or topic for this recording session:', 'Meeting Notes - ' + new Date().toLocaleDateString());
+    if (sessionPurpose) {
+      // Get latest session data
       activeTeams = JSON.parse(localStorage.getItem('teams')) || [];
       
       const newTeam = {
         id: Date.now().toString(),
-        name: teamName,
+        name: sessionPurpose,
         transcripts: []
       };
       
-      console.log('[POPUP_SCRIPT] Creating new team:', newTeam);
+      console.log('[POPUP_SCRIPT] Creating new recording session:', newTeam);
       
       activeTeams.push(newTeam);
       localStorage.setItem('teams', JSON.stringify(activeTeams));
       
-      // 確認團隊創建成功
-      console.log('[POPUP_SCRIPT] Team created. Total teams:', activeTeams.length);
-      console.log('[POPUP_SCRIPT] Teams in localStorage:', JSON.parse(localStorage.getItem('teams')));
+      // Confirm session creation
+      console.log('[POPUP_SCRIPT] Session created. Total sessions:', activeTeams.length);
+      console.log('[POPUP_SCRIPT] Sessions in localStorage:', JSON.parse(localStorage.getItem('teams')));
       
       loadTeamSelect();
       
-      // 自動選擇新建的團隊
+      // Auto-select the new session
       teamSelect.value = newTeam.id;
       
       // 通知背景腳本更新活躍團隊
@@ -409,7 +448,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       );
       
-      showPopupMessage(`已創建新團隊: ${teamName}`, "success");
+      showPopupMessage(`New session created: ${sessionPurpose}`, "success");
     }
   });
   
@@ -417,7 +456,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('deleteTeamBtn').addEventListener('click', function() {
     const selectedTeamId = teamSelect.value;
     if (!selectedTeamId) {
-      showPopupMessage('Please select a team to delete', 'error');
+      showPopupMessage('Please select a session to delete', 'error');
       return;
     }
     
@@ -426,12 +465,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const teamToDelete = activeTeams.find(team => team.id === selectedTeamId);
     
     if (!teamToDelete) {
-      showPopupMessage('Team not found', 'error');
+      showPopupMessage('Session not found', 'error');
       return;
     }
     
     // 確認刪除
-    const confirmMessage = `Are you sure you want to delete the team "${teamToDelete.name}"?\n\nThis will permanently delete all ${teamToDelete.transcripts ? teamToDelete.transcripts.length : 0} transcript(s) for this team.`;
+    const confirmMessage = `Are you sure you want to delete the session "${teamToDelete.name}"?\n\nThis will permanently delete all ${teamToDelete.transcripts ? teamToDelete.transcripts.length : 0} transcript(s) from this recording session.`;
     
     if (confirm(confirmMessage)) {
       // 過濾掉要刪除的團隊
@@ -445,10 +484,12 @@ document.addEventListener('DOMContentLoaded', function() {
         localStorage.removeItem('selected_team_id');
       }
       
-      console.log(`[POPUP_SCRIPT] Team deleted: ${teamToDelete.name} (${selectedTeamId})`);
+      console.log(`[POPUP_SCRIPT] Session deleted: ${teamToDelete.name} (${selectedTeamId})`);
       
       // 重新載入團隊選擇下拉列表
       loadTeamSelect();
+      
+      showPopupMessage(`Session "${teamToDelete.name}" deleted successfully`, 'success');
       
       // 如果還有其他團隊，選擇第一個
       if (activeTeams.length > 0) {
@@ -778,21 +819,30 @@ document.addEventListener('DOMContentLoaded', function() {
         // 处理来自background的保存转录请求
         console.log('[POPUP_SCRIPT] Received saveTranscriptToTeam request from background');
         console.log('[POPUP_SCRIPT] Message details:', JSON.stringify(message, null, 2));
-        const saveResult = saveTranscriptToTeamFromBackground(message.teamId, message.transcriptChunks, message.fullText);
-        if (saveResult) {
-          console.log('[POPUP_SCRIPT] Transcript saved successfully from background request');
-          showPopupMessage("轉錄已保存到團隊記錄", "success", 3000);
-          
-          // 自動複製轉錄內容到剪貼板（確保團隊資訊已保存）
-          console.log('[POPUP_SCRIPT] Auto-copying transcript to clipboard after successful save');
-          autoCopyTranscriptToClipboard();
-          
-          sendResponse({ success: true, message: 'Transcript saved successfully' });
-        } else {
-          console.error('[POPUP_SCRIPT] Failed to save transcript from background request');
-          showPopupMessage("保存轉錄失敗", "error", 3000);
-          sendResponse({ success: false, error: 'Failed to save transcript' });
-        }
+        // Handle async function properly
+        saveTranscriptToTeamFromBackground(message.teamId, message.transcriptChunks, message.fullText)
+          .then(saveResult => {
+            if (saveResult) {
+              console.log('[POPUP_SCRIPT] Transcript saved successfully from background request');
+              showPopupMessage("轉錄已保存到團隊記錄", "success", 3000);
+              
+              // 自動複製轉錄內容到剪貼板（確保團隊資訊已保存）
+              console.log('[POPUP_SCRIPT] Auto-copying transcript to clipboard after successful save');
+              autoCopyTranscriptToClipboard();
+              
+              sendResponse({ success: true, message: 'Transcript saved successfully' });
+            } else {
+              console.error('[POPUP_SCRIPT] Failed to save transcript from background request');
+              showPopupMessage("保存轉錄失敗", "error", 3000);
+              sendResponse({ success: false, error: 'Failed to save transcript' });
+            }
+          })
+          .catch(error => {
+            console.error('[POPUP_SCRIPT] Error saving transcript from background:', error);
+            showPopupMessage("保存轉錄失敗", "error", 3000);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true; // Will respond asynchronously
         break;
         
       case 'audioReroutingSuccess':
@@ -811,6 +861,19 @@ document.addEventListener('DOMContentLoaded', function() {
         // Handle successful capture start
         console.log('[POPUP_SCRIPT] Capture started successfully:', message.message);
         showPopupMessage("🎙️ Audio capture started successfully!", "success", 3000);
+        break;
+        
+      case 'progressiveSaveTranscript':
+        // Handle progressive save request from background
+        console.log('[POPUP_SCRIPT] Received progressive save request from background');
+        const progressiveResult = saveProgressiveTranscript(message.teamId, message.transcriptChunks, message.fullText);
+        sendResponse({ success: progressiveResult });
+        break;
+        
+      case 'checkPendingSaves':
+        // Background notified us to check for pending saves
+        console.log('[POPUP_SCRIPT] Background notified about pending saves');
+        checkAndProcessPendingSaves();
         break;
     }
     
@@ -865,7 +928,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // 保存轉錄到團隊記錄
-  function saveTranscriptToTeam(teamIdToSave) {
+  async function saveTranscriptToTeam(teamIdToSave) {
     try {
       console.log('[POPUP_SCRIPT] saveTranscriptToTeam - 開始保存轉錄記錄');
       console.log('[POPUP_SCRIPT] saveTranscriptToTeam - teamIdToSave:', teamIdToSave);
@@ -909,6 +972,11 @@ document.addEventListener('DOMContentLoaded', function() {
         latestTeams[teamIndex].transcripts = [];
       }
       
+      // Remove any progressive transcript when saving final
+      latestTeams[teamIndex].transcripts = latestTeams[teamIndex].transcripts.filter(
+        t => !t.isProgressive
+      );
+      
       // 準備轉錄數據的深拷貝
       const transcriptChunksCopy = JSON.parse(JSON.stringify(transcriptChunks));
       
@@ -917,27 +985,54 @@ document.addEventListener('DOMContentLoaded', function() {
         id: Date.now().toString(),
         date: new Date().toISOString(),
         text: fullText,
-        chunks: transcriptChunksCopy
+        chunks: transcriptChunksCopy,
+        isProgressive: false
       };
       
       latestTeams[teamIndex].transcripts.push(newTranscript);
       
-      // 保存更新後的團隊數據
-      try {
-        localStorage.setItem('teams', JSON.stringify(latestTeams));
-        console.log('[POPUP_SCRIPT] 轉錄保存成功! 團隊:', latestTeams[teamIndex].name);
-        console.log('[POPUP_SCRIPT] 該團隊現有轉錄數:', latestTeams[teamIndex].transcripts.length);
-        
-        // 更新本地activeTeams變量以保持一致
-        activeTeams = latestTeams;
-        
-        // 顯示成功訊息
-        showPopupMessage("轉錄已保存到團隊記錄", "success", 2000);
-        return true;
-      } catch (error) {
-        console.error('[POPUP_SCRIPT] 保存到localStorage失敗:', error);
-        alert('保存轉錄記錄失敗: ' + error.message);
-        return false;
+      // 保存更新後的團隊數據 with retry logic
+      let saveAttempts = 0;
+      const maxAttempts = 3;
+      let saved = false;
+      
+      while (saveAttempts < maxAttempts && !saved) {
+        try {
+          localStorage.setItem('teams', JSON.stringify(latestTeams));
+          console.log('[POPUP_SCRIPT] 轉錄保存成功! 團隊:', latestTeams[teamIndex].name);
+          console.log('[POPUP_SCRIPT] 該團隊現有轉錄數:', latestTeams[teamIndex].transcripts.length);
+          
+          // 更新本地activeTeams變量以保持一致
+          activeTeams = latestTeams;
+          saved = true;
+          
+          // 顯示成功訊息 with details
+          showPopupMessage(`轉錄已成功保存到團隊記錄 (${latestTeams[teamIndex].name})`, "success", 3000);
+          return true;
+        } catch (error) {
+          saveAttempts++;
+          console.error(`[POPUP_SCRIPT] 保存到localStorage失敗 (attempt ${saveAttempts}/${maxAttempts}):`, error);
+          if (saveAttempts < maxAttempts) {
+            // Wait a bit before retrying
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else {
+            alert(`保存轉錄記錄失敗 (嘗試了${maxAttempts}次): ${error.message}\n\n請確認瀏覽器儲存空間足夠。`);
+            // As a last resort, try to save to chrome.storage
+            try {
+              await chrome.storage.local.set({
+                'emergency_save': {
+                  teamId: teamIdToSave,
+                  transcript: newTranscript,
+                  timestamp: Date.now()
+                }
+              });
+              showPopupMessage('緊急保存到Chrome儲存區', 'error', 5000);
+            } catch (e) {
+              console.error('[POPUP_SCRIPT] Emergency save also failed:', e);
+            }
+            return false;
+          }
+        }
       }
     } catch (error) {
       console.error('[POPUP_SCRIPT] saveTranscriptToTeam錯誤:', error);
@@ -947,7 +1042,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // 從background保存轉錄到團隊記錄
-  function saveTranscriptToTeamFromBackground(teamId, transcriptChunks, fullText) {
+  async function saveTranscriptToTeamFromBackground(teamId, transcriptChunks, fullText) {
     try {
       console.log('[POPUP_SCRIPT] saveTranscriptToTeamFromBackground - Starting to save transcript');
       console.log('[POPUP_SCRIPT] Team ID:', teamId);
@@ -981,6 +1076,11 @@ document.addEventListener('DOMContentLoaded', function() {
         latestTeams[teamIndex].transcripts = [];
       }
       
+      // Remove any progressive transcript when saving final
+      latestTeams[teamIndex].transcripts = latestTeams[teamIndex].transcripts.filter(
+        t => !t.isProgressive
+      );
+      
       // 準備轉錄數據的深拷貝
       const transcriptChunksCopy = JSON.parse(JSON.stringify(transcriptChunks));
       
@@ -989,24 +1089,49 @@ document.addEventListener('DOMContentLoaded', function() {
         id: Date.now().toString(),
         date: new Date().toISOString(),
         text: fullText,
-        chunks: transcriptChunksCopy
+        chunks: transcriptChunksCopy,
+        isProgressive: false
       };
       
       latestTeams[teamIndex].transcripts.push(newTranscript);
       
-      // 保存更新後的團隊數據
-      try {
-        localStorage.setItem('teams', JSON.stringify(latestTeams));
-        console.log('[POPUP_SCRIPT] Transcript saved successfully! Team:', latestTeams[teamIndex].name);
-        console.log('[POPUP_SCRIPT] Team now has transcripts count:', latestTeams[teamIndex].transcripts.length);
-        
-        // 更新本地activeTeams變量以保持一致
-        activeTeams = latestTeams;
-        
-        return true;
-      } catch (error) {
-        console.error('[POPUP_SCRIPT] Failed to save to localStorage:', error);
-        return false;
+      // 保存更新後的團隊數據 with retry logic
+      let saveAttempts = 0;
+      const maxAttempts = 3;
+      let saved = false;
+      
+      while (saveAttempts < maxAttempts && !saved) {
+        try {
+          localStorage.setItem('teams', JSON.stringify(latestTeams));
+          console.log('[POPUP_SCRIPT] Transcript saved successfully! Team:', latestTeams[teamIndex].name);
+          console.log('[POPUP_SCRIPT] Team now has transcripts count:', latestTeams[teamIndex].transcripts.length);
+          
+          // 更新本地activeTeams變量以保持一致
+          activeTeams = latestTeams;
+          saved = true;
+          return true;
+        } catch (error) {
+          saveAttempts++;
+          console.error(`[POPUP_SCRIPT] Failed to save to localStorage (attempt ${saveAttempts}/${maxAttempts}):`, error);
+          if (saveAttempts >= maxAttempts) {
+            // As a last resort, save to chrome.storage
+            try {
+              await chrome.storage.local.set({
+                'emergency_save_from_background': {
+                  teamId: teamId,
+                  transcript: newTranscript,
+                  timestamp: Date.now()
+                }
+              });
+              console.log('[POPUP_SCRIPT] Emergency save to chrome.storage successful');
+            } catch (e) {
+              console.error('[POPUP_SCRIPT] Emergency save also failed:', e);
+            }
+            return false;
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
     } catch (error) {
       console.error('[POPUP_SCRIPT] saveTranscriptToTeamFromBackground error:', error);
@@ -1017,6 +1142,19 @@ document.addEventListener('DOMContentLoaded', function() {
   // 設置按鈕事件
   document.getElementById('settingsBtn').addEventListener('click', function() {
     document.getElementById('settingsPanel').classList.toggle('hidden');
+    // Hide other panels
+    document.getElementById('endpointSettingsPanel').classList.add('hidden');
+    document.getElementById('historyPanel').classList.add('hidden');
+    document.getElementById('bulkDeletePanel').classList.add('hidden');
+  });
+  
+  // Endpoint settings button event
+  document.getElementById('endpointSettingsBtn').addEventListener('click', function() {
+    document.getElementById('endpointSettingsPanel').classList.toggle('hidden');
+    // Hide other panels
+    document.getElementById('settingsPanel').classList.add('hidden');
+    document.getElementById('historyPanel').classList.add('hidden');
+    document.getElementById('bulkDeletePanel').classList.add('hidden');
   });
   
   // 顯示團隊記錄按鈕事件
@@ -1034,6 +1172,12 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 初始載入團隊選擇
   loadTeamSelect();
+  
+  // Check for pending saves from background on startup
+  checkAndProcessPendingSaves();
+  
+  // Initialize STT provider selection
+  initializeSTTProviderSelection();
   
   // Add event listeners for auto-save on API Key and Endpoint inputs
   document.getElementById('apiKeyInput').addEventListener('input', autoSaveApiSettings);
@@ -1055,6 +1199,38 @@ function showPopupMessage(message, type = 'success', duration = 3000) {
     msgArea.style.display = 'none';
   }, duration);
 }
+
+// STT Provider configurations
+const STT_PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    endpoint: 'https://api.openai.com/v1',
+    models: [
+      { value: 'whisper-1', name: 'whisper-1', description: 'Standard model (legacy)' },
+      { value: 'gpt-4o-mini-transcribe', name: 'gpt-4o-mini-transcribe', description: 'Faster, cheaper' },
+      { value: 'gpt-4o-transcribe', name: 'gpt-4o-transcribe', description: 'Most accurate' }
+    ]
+  },
+  trendmicro: {
+    name: 'Trend Micro',
+    endpoint: 'https://api.rdsec.trendmicro.com/prod/aiendpoint/v1',
+    models: [
+      { value: 'whisper-1', name: 'whisper-1', description: 'Balanced performance' }
+    ]
+  },
+  groq: {
+    name: 'Groq',
+    endpoint: 'https://api.groq.com/openai/v1',
+    models: [
+      { value: 'whisper-large-v3-turbo', name: 'whisper-large-v3-turbo', description: 'Fastest, cheapest, average accuracy' }
+    ]
+  },
+  custom: {
+    name: 'Custom',
+    endpoint: '',
+    models: []
+  }
+};
 
 // Default User Prompt Template for Meeting Notes
 const DEFAULT_USER_PROMPT_TEMPLATE = `You are an expert meeting assistant. Please analyze the meeting content below and provide a comprehensive summary.
@@ -1093,22 +1269,22 @@ const DEFAULT_USER_PROMPT_TEMPLATE = `You are an expert meeting assistant. Pleas
 [Any other important information]`;
 
 // Function to load saved settings
-function loadSettings() {
-  const savedApiKey = localStorage.getItem('openai_api_key') || '';
+async function loadSettings() {
+  // Use secure storage for API keys
+  const savedApiKey = await secureGetItem('openai_api_key') || '';
   const savedApiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
   const savedSttApiEndpoint = localStorage.getItem('openai_stt_api_endpoint') || '';
-  const savedSttApiKey = localStorage.getItem('openai_stt_api_key') || '';
+  const savedSttApiKey = await secureGetItem('openai_stt_api_key') || '';
   const savedSttModel = localStorage.getItem('openai_transcription_model') || '';
   const downloadFiles = localStorage.getItem('download_audio_files') === 'true';
   const savedLanguage = localStorage.getItem('transcription_language') || '';
   const savedScreenshotDetail = localStorage.getItem('screenshot_detail_level') || 'medium';
   const enableScreenshotAnalysis = localStorage.getItem('enable_screenshot_analysis') !== 'false'; // Default to true
   const enableAudioRerouting = localStorage.getItem('enable_audio_rerouting') !== 'false'; // Default to true
-  const screenshotInterval = parseInt(localStorage.getItem('screenshot_interval')) || 10;
+  const screenshotInterval = parseInt(localStorage.getItem('screenshot_interval')) || 20;
   const transcriptionInterval = parseInt(localStorage.getItem('transcription_interval')) || 10;
   
-  // Load User Prompt Template setting
-  const userPromptTemplate = localStorage.getItem('user_prompt_template') || DEFAULT_USER_PROMPT_TEMPLATE;
+  // User Prompt Template is now handled by the template system
   
   // Load model enable states (default: only model 1 enabled)
   const enableModel1 = localStorage.getItem('enable_model1') !== 'false'; // Default to true
@@ -1118,10 +1294,10 @@ function loadSettings() {
 
   document.getElementById('apiKeyInput').value = savedApiKey;
   document.getElementById('apiEndpointInput').value = savedApiEndpoint;
-  document.getElementById('sttApiEndpointInput').value = savedSttApiEndpoint;
-  document.getElementById('sttApiKeyInput').value = savedSttApiKey;
-  document.getElementById('sttModelInput').value = savedSttModel;
   document.getElementById('downloadFilesCheckbox').checked = downloadFiles;
+  
+  // Load STT provider selection
+  loadSTTProviderSettings(savedSttApiEndpoint, savedSttModel);
   document.getElementById('languageSelect').value = savedLanguage;
   document.getElementById('screenshotDetailSelect').value = savedScreenshotDetail;
   document.getElementById('enableScreenshotAnalysis').checked = enableScreenshotAnalysis;
@@ -1135,12 +1311,29 @@ function loadSettings() {
   document.getElementById('enableModel3').checked = enableModel3;
   document.getElementById('enableModel4').checked = enableModel4;
   
-  // Set User Prompt Template
-  document.getElementById('userPromptTemplate').value = userPromptTemplate;
+  // User Prompt Template is set by the template system
   
   // If there's a saved API key, try to load models
   if (savedApiKey && savedApiEndpoint) {
     testAPIConnection(false); // false to not show success message on initial load
+    
+    // Sync decrypted API keys to chrome.storage.local for background script
+    chrome.storage.local.set({
+      'openai_api_key': savedApiKey,
+      'openai_stt_api_key': savedSttApiKey || savedApiKey // Use main key as fallback
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Error syncing decrypted API keys to chrome.storage:', chrome.runtime.lastError);
+      } else {
+        console.log('Decrypted API keys synced to chrome.storage for background script');
+      }
+    });
+  }
+  
+  // Also update STT API key input if available
+  const sttApiKeyInput = document.getElementById('sttApiKeyInput');
+  if (sttApiKeyInput) {
+    sttApiKeyInput.value = savedSttApiKey;
   }
 }
 
@@ -1539,15 +1732,42 @@ function autoSaveApiSettings() {
   }
 }
 
-// Event listener for Save Settings button
-document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
+// Event listener for Save Endpoint Settings button
+document.getElementById('saveEndpointSettingsBtn').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKeyInput').value.trim();
   let apiEndpoint = document.getElementById('apiEndpointInput').value.trim() || 'https://api.openai.com/v1';
   let sttApiEndpoint = document.getElementById('sttApiEndpointInput').value.trim();
   const sttApiKey = document.getElementById('sttApiKeyInput').value.trim();
+  const sttProvider = document.getElementById('sttProviderSelect').value;
   const sttModel = document.getElementById('sttModelInput').value.trim();
   
-  // Normalize API endpoint - ensure it ends with /v1 and not /v1/
+  // Validate API keys
+  if (!validateApiKey(apiKey)) {
+    showPopupMessage('Invalid API key format. Please check your API key.', 'error');
+    document.getElementById('apiKeyInput').focus();
+    return;
+  }
+  
+  if (sttApiKey && !validateApiKey(sttApiKey)) {
+    showPopupMessage('Invalid STT API key format. Please check your API key.', 'error');
+    document.getElementById('sttApiKeyInput').focus();
+    return;
+  }
+  
+  // Validate endpoint URLs
+  if (apiEndpoint && !validateUrl(apiEndpoint)) {
+    showPopupMessage('Invalid API endpoint URL. Please use HTTPS URLs only.', 'error');
+    document.getElementById('apiEndpointInput').focus();
+    return;
+  }
+  
+  if (sttApiEndpoint && !validateUrl(sttApiEndpoint)) {
+    showPopupMessage('Invalid STT API endpoint URL. Please use HTTPS URLs only.', 'error');
+    document.getElementById('sttApiEndpointInput').focus();
+    return;
+  }
+  
+  // Normalize API endpoint
   if (apiEndpoint) {
     apiEndpoint = apiEndpoint.replace(/\/+$/, '');
     if (!apiEndpoint.endsWith('/v1') && !/\/v\d+$/.test(apiEndpoint)) {
@@ -1555,10 +1775,36 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     }
   }
   
-  // STT API endpoint - just remove trailing slashes, no /v1 enforcement
+  // STT API endpoint - just remove trailing slashes
   if (sttApiEndpoint) {
     sttApiEndpoint = sttApiEndpoint.replace(/\/+$/, '');
   }
+  
+  // Save all endpoint and key settings
+  try {
+    await secureSetItem('openai_api_key', apiKey);
+    await secureSetItem('openai_api_endpoint', apiEndpoint);
+    await secureSetItem('openai_stt_api_endpoint', sttApiEndpoint);
+    await secureSetItem('openai_stt_api_key', sttApiKey);
+    localStorage.setItem('stt_provider', sttProvider);
+    localStorage.setItem('openai_transcription_model', sttModel);
+    
+    showPopupMessage('API configuration saved successfully!', 'success');
+  } catch (error) {
+    console.error('Failed to save API configuration:', error);
+    showPopupMessage('Failed to save API configuration', 'error');
+  }
+});
+
+// Event listener for Save Settings button
+document.getElementById('saveSettingsBtn').addEventListener('click', async function() {
+  // Get API configuration values
+  const apiKey = await secureGetItem('openai_api_key') || '';
+  const apiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
+  const sttApiEndpoint = localStorage.getItem('openai_stt_api_endpoint') || '';
+  const sttApiKey = await secureGetItem('openai_stt_api_key') || '';
+  const sttModel = localStorage.getItem('openai_transcription_model') || '';
+  
   const selectedModel1 = document.getElementById('modelSelect1').value;
   const selectedModel2 = document.getElementById('modelSelect2').value;
   const selectedModel3 = document.getElementById('modelSelect3').value;
@@ -1572,15 +1818,13 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   const downloadFiles = document.getElementById('downloadFilesCheckbox').checked;
   const enableScreenshotAnalysis = document.getElementById('enableScreenshotAnalysis').checked;
   const enableAudioRerouting = document.getElementById('enableAudioRerouting').checked;
-  const screenshotInterval = parseInt(document.getElementById('screenshotIntervalInput').value) || 10;
+  const screenshotInterval = parseInt(document.getElementById('screenshotIntervalInput').value) || 20;
   const transcriptionInterval = parseInt(document.getElementById('transcriptionIntervalInput').value) || 10;
   
-  // Get User Prompt Template setting
-  const userPromptTemplate = document.getElementById('userPromptTemplate').value.trim();
+  // User prompt template is now handled by the template system
 
   if (!apiKey) {
-    showPopupMessage('API Key cannot be empty.', 'error');
-    document.getElementById('apiKeyInput').focus();
+    showPopupMessage('API Key cannot be empty. Please configure in API Configuration settings.', 'error');
     return;
   }
 
@@ -1621,11 +1865,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
     return;
   }
 
-  localStorage.setItem('openai_api_key', apiKey);
-  localStorage.setItem('openai_api_endpoint', apiEndpoint);
-  localStorage.setItem('openai_stt_api_endpoint', sttApiEndpoint);
-  localStorage.setItem('openai_stt_api_key', sttApiKey);
-  localStorage.setItem('openai_transcription_model', sttModel);
+  // Save model selections
   localStorage.setItem('openai_model1', selectedModel1);
   localStorage.setItem('openai_model2', selectedModel2);
   localStorage.setItem('openai_model3', selectedModel3);
@@ -1644,7 +1884,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async funct
   localStorage.setItem('transcription_interval', transcriptionInterval.toString());
   
   // Save User Prompt Template setting
-  localStorage.setItem('user_prompt_template', userPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE);
+  // User prompt template is saved by the template system
   
   // For backward compatibility, save the first enabled model as the primary model
   if (enableModel1 && selectedModel1) {
@@ -1869,6 +2109,364 @@ function hideCopyToClipboardButton() {
   }
 }
 
+// Save progressive transcript (called during recording)
+function saveProgressiveTranscript(teamId, chunks, fullText) {
+  try {
+    console.log('[POPUP_SCRIPT] Saving progressive transcript');
+    console.log('[POPUP_SCRIPT] Team ID:', teamId);
+    console.log('[POPUP_SCRIPT] Chunks count:', chunks.length);
+    
+    if (!teamId || !chunks || chunks.length === 0) {
+      console.warn('[POPUP_SCRIPT] Cannot save progressive transcript: missing data');
+      return false;
+    }
+    
+    // Get latest teams data
+    const latestTeams = JSON.parse(localStorage.getItem('teams')) || [];
+    const teamIndex = latestTeams.findIndex(team => team.id === teamId);
+    
+    if (teamIndex === -1) {
+      console.warn('[POPUP_SCRIPT] Team not found for progressive save:', teamId);
+      return false;
+    }
+    
+    // Ensure team has transcripts array
+    if (!latestTeams[teamIndex].transcripts) {
+      latestTeams[teamIndex].transcripts = [];
+    }
+    
+    // Check if we have a progressive transcript already
+    const progressiveIndex = latestTeams[teamIndex].transcripts.findIndex(
+      t => t.isProgressive === true
+    );
+    
+    // Create transcript record
+    const progressiveTranscript = {
+      id: progressiveIndex >= 0 ? latestTeams[teamIndex].transcripts[progressiveIndex].id : `progressive_${Date.now()}`,
+      date: progressiveIndex >= 0 ? latestTeams[teamIndex].transcripts[progressiveIndex].date : new Date().toISOString(),
+      text: fullText,
+      chunks: JSON.parse(JSON.stringify(chunks)),
+      isProgressive: true,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    if (progressiveIndex >= 0) {
+      // Update existing progressive transcript
+      latestTeams[teamIndex].transcripts[progressiveIndex] = progressiveTranscript;
+      console.log('[POPUP_SCRIPT] Updated existing progressive transcript');
+    } else {
+      // Add new progressive transcript
+      latestTeams[teamIndex].transcripts.push(progressiveTranscript);
+      console.log('[POPUP_SCRIPT] Added new progressive transcript');
+    }
+    
+    // Save to localStorage
+    localStorage.setItem('teams', JSON.stringify(latestTeams));
+    activeTeams = latestTeams;
+    console.log('[POPUP_SCRIPT] Progressive transcript saved successfully');
+    return true;
+  } catch (error) {
+    console.error('[POPUP_SCRIPT] Error saving progressive transcript:', error);
+    return false;
+  }
+}
+
+// Check and process pending saves from background
+async function checkAndProcessPendingSaves() {
+  console.log('[POPUP_SCRIPT] Checking for pending saves from background');
+  
+  try {
+    // Check for pending saves
+    const hasPendingSaves = await new Promise((resolve) => {
+      chrome.storage.local.get(['has_pending_saves', 'pending_transcript_saves', 'progressive_transcript_save'], (result) => {
+        resolve(result);
+      });
+    });
+    
+    if (!hasPendingSaves.has_pending_saves) {
+      console.log('[POPUP_SCRIPT] No pending saves found');
+      return;
+    }
+    
+    // Process progressive save first
+    if (hasPendingSaves.progressive_transcript_save) {
+      const progressiveData = hasPendingSaves.progressive_transcript_save;
+      console.log('[POPUP_SCRIPT] Found progressive save to process');
+      
+      const saved = saveProgressiveTranscript(
+        progressiveData.teamId,
+        progressiveData.transcriptChunks,
+        progressiveData.transcriptChunks
+          .filter(chunk => chunk.type === 'transcription' && chunk.text)
+          .map(chunk => chunk.text)
+          .join(' ')
+      );
+      
+      if (saved) {
+        // Clear the progressive save
+        chrome.storage.local.remove(['progressive_transcript_save']);
+      }
+    }
+    
+    // Process pending final saves
+    if (hasPendingSaves.pending_transcript_saves && hasPendingSaves.pending_transcript_saves.length > 0) {
+      console.log('[POPUP_SCRIPT] Found', hasPendingSaves.pending_transcript_saves.length, 'pending saves to process');
+      
+      let successCount = 0;
+      const remainingSaves = [];
+      
+      for (const pendingSave of hasPendingSaves.pending_transcript_saves) {
+        console.log('[POPUP_SCRIPT] Processing pending save for team:', pendingSave.teamId);
+        
+        // Get latest teams data
+        const latestTeams = JSON.parse(localStorage.getItem('teams')) || [];
+        const teamIndex = latestTeams.findIndex(team => team.id === pendingSave.teamId);
+        
+        if (teamIndex === -1) {
+          console.warn('[POPUP_SCRIPT] Team not found for pending save:', pendingSave.teamId);
+          continue;
+        }
+        
+        // Ensure team has transcripts array
+        if (!latestTeams[teamIndex].transcripts) {
+          latestTeams[teamIndex].transcripts = [];
+        }
+        
+        // Remove any progressive transcript when saving final
+        latestTeams[teamIndex].transcripts = latestTeams[teamIndex].transcripts.filter(
+          t => !t.isProgressive
+        );
+        
+        // Add the transcript
+        latestTeams[teamIndex].transcripts.push(pendingSave.transcript);
+        
+        try {
+          localStorage.setItem('teams', JSON.stringify(latestTeams));
+          activeTeams = latestTeams;
+          successCount++;
+          console.log('[POPUP_SCRIPT] Successfully saved pending transcript for team:', pendingSave.teamId);
+        } catch (error) {
+          console.error('[POPUP_SCRIPT] Failed to save pending transcript:', error);
+          remainingSaves.push(pendingSave);
+        }
+      }
+      
+      // Update storage with remaining saves or clear if all processed
+      if (remainingSaves.length > 0) {
+        chrome.storage.local.set({ 'pending_transcript_saves': remainingSaves });
+      } else {
+        chrome.storage.local.remove(['pending_transcript_saves', 'has_pending_saves']);
+      }
+      
+      if (successCount > 0) {
+        showPopupMessage(`Successfully recovered ${successCount} transcript(s) from background saves`, 'success', 5000);
+      }
+    }
+  } catch (error) {
+    console.error('[POPUP_SCRIPT] Error processing pending saves:', error);
+  }
+}
+
+// Initialize STT provider selection
+function initializeSTTProviderSelection() {
+  const providerSelect = document.getElementById('sttProviderSelect');
+  const modelSelect = document.getElementById('sttModelSelect');
+  const customEndpointGroup = document.getElementById('customEndpointGroup');
+  const customModelGroup = document.getElementById('customModelGroup');
+  const modelDescription = document.getElementById('modelDescription');
+  
+  // Provider change handler
+  providerSelect.addEventListener('change', function() {
+    const selectedProvider = this.value;
+    const provider = STT_PROVIDERS[selectedProvider];
+    
+    // Show/hide custom endpoint input
+    customEndpointGroup.style.display = selectedProvider === 'custom' ? 'block' : 'none';
+    
+    // Clear and populate model dropdown
+    modelSelect.innerHTML = '<option value="">Select a model...</option>';
+    
+    if (provider && provider.models.length > 0) {
+      // Add predefined models
+      provider.models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.value;
+        option.textContent = model.name;
+        modelSelect.appendChild(option);
+      });
+      
+      // Add custom model option for all providers
+      const customOption = document.createElement('option');
+      customOption.value = 'custom';
+      customOption.textContent = 'Custom Model...';
+      modelSelect.appendChild(customOption);
+      
+      customModelGroup.style.display = 'none';
+    } else if (selectedProvider === 'custom') {
+      // For custom provider, only show custom model input
+      customModelGroup.style.display = 'block';
+      modelDescription.textContent = 'Enter any OpenAI-compatible model name';
+    }
+    
+    // Update endpoint based on provider
+    if (selectedProvider !== 'custom' && provider) {
+      localStorage.setItem('openai_stt_api_endpoint', provider.endpoint);
+      
+      // Also update the hidden input field for compatibility
+      const endpointInput = document.getElementById('sttApiEndpointInput');
+      if (endpointInput) {
+        endpointInput.value = provider.endpoint;
+      }
+    }
+    
+    // Save provider selection
+    localStorage.setItem('stt_provider', selectedProvider);
+  });
+  
+  // Model change handler
+  modelSelect.addEventListener('change', function() {
+    const selectedModel = this.value;
+    const selectedProvider = providerSelect.value;
+    const provider = STT_PROVIDERS[selectedProvider];
+    
+    if (selectedModel === 'custom') {
+      customModelGroup.style.display = 'block';
+      modelDescription.textContent = '';
+    } else {
+      customModelGroup.style.display = 'none';
+      
+      // Show model description
+      if (provider && provider.models) {
+        const modelInfo = provider.models.find(m => m.value === selectedModel);
+        if (modelInfo) {
+          modelDescription.textContent = modelInfo.description;
+        }
+      }
+      
+      // Save model to storage
+      if (selectedModel) {
+        localStorage.setItem('openai_transcription_model', selectedModel);
+        // Update hidden input
+        const modelInput = document.getElementById('sttModelInput');
+        if (modelInput) {
+          modelInput.value = selectedModel;
+        }
+      }
+    }
+  });
+  
+  // Custom model input handler
+  const customModelInput = document.getElementById('sttModelInput');
+  if (customModelInput) {
+    customModelInput.addEventListener('input', function() {
+      if (this.value) {
+        localStorage.setItem('openai_transcription_model', this.value);
+      }
+    });
+  }
+  
+  // Custom endpoint input handler
+  const customEndpointInput = document.getElementById('sttApiEndpointInput');
+  if (customEndpointInput) {
+    customEndpointInput.addEventListener('input', function() {
+      localStorage.setItem('openai_stt_api_endpoint', this.value);
+    });
+  }
+}
+
+// Load STT provider settings
+function loadSTTProviderSettings(savedEndpoint, savedModel) {
+  const providerSelect = document.getElementById('sttProviderSelect');
+  const modelSelect = document.getElementById('sttModelSelect');
+  const modelInput = document.getElementById('sttModelInput');
+  const endpointInput = document.getElementById('sttApiEndpointInput');
+  const customEndpointGroup = document.getElementById('customEndpointGroup');
+  const customModelGroup = document.getElementById('customModelGroup');
+  
+  // Load saved provider or determine from endpoint
+  let savedProvider = localStorage.getItem('stt_provider');
+  
+  if (!savedProvider && savedEndpoint) {
+    // Try to determine provider from endpoint
+    for (const [key, provider] of Object.entries(STT_PROVIDERS)) {
+      if (provider.endpoint && savedEndpoint.includes(provider.endpoint)) {
+        savedProvider = key;
+        break;
+      }
+    }
+    if (!savedProvider) {
+      savedProvider = 'custom';
+    }
+  } else if (!savedProvider) {
+    savedProvider = 'openai'; // Default
+  }
+  
+  // Set provider selection
+  providerSelect.value = savedProvider;
+  
+  // Set endpoint for custom provider
+  if (savedProvider === 'custom') {
+    customEndpointGroup.style.display = 'block';
+    endpointInput.value = savedEndpoint || '';
+  } else {
+    customEndpointGroup.style.display = 'none';
+    const provider = STT_PROVIDERS[savedProvider];
+    if (provider) {
+      endpointInput.value = provider.endpoint;
+    }
+  }
+  
+  // Populate model dropdown
+  const provider = STT_PROVIDERS[savedProvider];
+  modelSelect.innerHTML = '<option value="">Select a model...</option>';
+  
+  if (provider && provider.models.length > 0) {
+    let modelFound = false;
+    
+    provider.models.forEach(model => {
+      const option = document.createElement('option');
+      option.value = model.value;
+      option.textContent = model.name;
+      modelSelect.appendChild(option);
+      
+      if (model.value === savedModel) {
+        modelFound = true;
+      }
+    });
+    
+    // Add custom option
+    const customOption = document.createElement('option');
+    customOption.value = 'custom';
+    customOption.textContent = 'Custom Model...';
+    modelSelect.appendChild(customOption);
+    
+    // Set model selection
+    if (modelFound) {
+      modelSelect.value = savedModel;
+      // Show description
+      const modelInfo = provider.models.find(m => m.value === savedModel);
+      if (modelInfo) {
+        document.getElementById('modelDescription').textContent = modelInfo.description;
+      }
+    } else if (savedModel) {
+      // Model not in predefined list, use custom
+      modelSelect.value = 'custom';
+      customModelGroup.style.display = 'block';
+      modelInput.value = savedModel;
+    }
+  } else {
+    // Custom provider
+    customModelGroup.style.display = 'block';
+    modelInput.value = savedModel || '';
+  }
+  
+  // Also update the STT API key field
+  const sttApiKeyInput = document.getElementById('sttApiKeyInput');
+  if (sttApiKeyInput) {
+    sttApiKeyInput.value = localStorage.getItem('openai_stt_api_key') || '';
+  }
+}
+
 // Auto copy transcript to clipboard when stop recording
 async function autoCopyTranscriptToClipboard() {
   console.log('[POPUP_SCRIPT] Auto copying transcript to clipboard');
@@ -1919,20 +2517,384 @@ async function autoCopyTranscriptToClipboard() {
       try {
         const successful = document.execCommand('copy');
         if (successful) {
-          showPopupMessage('✅ 轉錄內容已自動複製到剪貼板！', 'success', 3000);
+          showPopupMessage('✅ Transcript automatically copied to clipboard!', 'success', 3000);
           console.log('[POPUP_SCRIPT] Transcript auto-copied to clipboard (fallback method)');
         } else {
           throw new Error('Copy command failed');
         }
       } catch (err) {
         console.error('[POPUP_SCRIPT] Failed to copy using fallback method:', err);
-        showPopupMessage('❌ 自動複製失敗，請手動複製', 'error', 3000);
+        showPopupMessage('❌ Auto-copy failed, please copy manually', 'error', 3000);
       } finally {
         document.body.removeChild(textArea);
       }
     }
   } catch (error) {
     console.error('[POPUP_SCRIPT] Error auto-copying transcript:', error);
-    showPopupMessage('❌ 自動複製失敗，請手動複製', 'error', 3000);
+    showPopupMessage('❌ Auto-copy failed, please copy manually', 'error', 3000);
   }
+}
+
+// Multiple Prompt Template Management
+function initializePromptTemplates() {
+  const promptTemplateSelect = document.getElementById('promptTemplateSelect');
+  const newTemplateBtn = document.getElementById('newTemplateBtn');
+  const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
+  const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+  const cancelTemplateBtn = document.getElementById('cancelTemplateBtn');
+  const templateEditor = document.getElementById('templateEditor');
+  const templateNameInput = document.getElementById('templateName');
+  const userPromptTemplateInput = document.getElementById('userPromptTemplate');
+  
+  // Load saved templates
+  let promptTemplates = JSON.parse(localStorage.getItem('prompt_templates') || '{}');
+  let selectedTemplateId = localStorage.getItem('selected_template_id') || '';
+  
+  // Default templates if none exist
+  if (Object.keys(promptTemplates).length === 0) {
+    promptTemplates = {
+      'meeting_summary': {
+        id: 'meeting_summary',
+        name: 'Meeting Summary',
+        template: 'Please provide a comprehensive summary of the following meeting:\n\n{context}\n\nInclude:\n1. Key discussion points\n2. Action items with responsible parties\n3. Decisions made\n4. Next steps and deadlines\n5. Any important notes or concerns raised'
+      },
+      'technical_review': {
+        id: 'technical_review',
+        name: 'Technical Review',
+        template: 'Analyze the technical discussion and provide recommendations from:\n\n{context}\n\nFocus on:\n1. Technical decisions made\n2. Architecture or design choices\n3. Technical challenges discussed\n4. Proposed solutions\n5. Technical action items'
+      },
+      'project_status': {
+        id: 'project_status',
+        name: 'Project Status',
+        template: 'Extract project updates and status from:\n\n{context}\n\nProvide:\n1. Current project status\n2. Progress on milestones\n3. Blockers or issues\n4. Resource needs\n5. Timeline updates'
+      }
+    };
+    localStorage.setItem('prompt_templates', JSON.stringify(promptTemplates));
+  }
+  
+  // Populate template dropdown
+  function loadTemplateDropdown() {
+    promptTemplateSelect.innerHTML = '<option value="">-- Select a template --</option>';
+    
+    Object.values(promptTemplates).forEach(template => {
+      const option = document.createElement('option');
+      option.value = template.id;
+      option.textContent = template.name;
+      promptTemplateSelect.appendChild(option);
+    });
+    
+    if (selectedTemplateId && promptTemplates[selectedTemplateId]) {
+      promptTemplateSelect.value = selectedTemplateId;
+      deleteTemplateBtn.disabled = false;
+    } else {
+      deleteTemplateBtn.disabled = true;
+    }
+  }
+  
+  // Load template into editor
+  function loadTemplate(templateId) {
+    if (templateId && promptTemplates[templateId]) {
+      const template = promptTemplates[templateId];
+      templateNameInput.value = template.name;
+      userPromptTemplateInput.value = template.template;
+      templateEditor.style.display = 'block';
+      deleteTemplateBtn.disabled = false;
+    } else {
+      templateEditor.style.display = 'none';
+      deleteTemplateBtn.disabled = true;
+    }
+  }
+  
+  // Template selection change
+  promptTemplateSelect.addEventListener('change', function() {
+    selectedTemplateId = this.value;
+    localStorage.setItem('selected_template_id', selectedTemplateId);
+    loadTemplate(selectedTemplateId);
+  });
+  
+  // New template button
+  newTemplateBtn.addEventListener('click', function() {
+    const newId = 'template_' + Date.now();
+    selectedTemplateId = newId;
+    promptTemplateSelect.value = '';
+    templateNameInput.value = '';
+    userPromptTemplateInput.value = '';
+    templateEditor.style.display = 'block';
+    deleteTemplateBtn.disabled = true;
+  });
+  
+  // Save template button
+  saveTemplateBtn.addEventListener('click', function() {
+    const name = templateNameInput.value.trim();
+    const template = userPromptTemplateInput.value.trim();
+    
+    if (!name) {
+      showPopupMessage('Please enter a template name', 'error');
+      return;
+    }
+    
+    if (!template) {
+      showPopupMessage('Please enter a template', 'error');
+      return;
+    }
+    
+    promptTemplates[selectedTemplateId] = {
+      id: selectedTemplateId,
+      name: name,
+      template: template
+    };
+    
+    localStorage.setItem('prompt_templates', JSON.stringify(promptTemplates));
+    localStorage.setItem('selected_template_id', selectedTemplateId);
+    
+    loadTemplateDropdown();
+    promptTemplateSelect.value = selectedTemplateId;
+    showPopupMessage('Template saved successfully!', 'success');
+  });
+  
+  // Cancel button
+  cancelTemplateBtn.addEventListener('click', function() {
+    loadTemplate(selectedTemplateId);
+    if (!selectedTemplateId) {
+      templateEditor.style.display = 'none';
+    }
+  });
+  
+  // Delete template button
+  deleteTemplateBtn.addEventListener('click', function() {
+    if (!selectedTemplateId || !promptTemplates[selectedTemplateId]) {
+      showPopupMessage('No template selected to delete', 'error');
+      return;
+    }
+    
+    const template = promptTemplates[selectedTemplateId];
+    if (confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
+      delete promptTemplates[selectedTemplateId];
+      localStorage.setItem('prompt_templates', JSON.stringify(promptTemplates));
+      
+      selectedTemplateId = '';
+      localStorage.removeItem('selected_template_id');
+      
+      loadTemplateDropdown();
+      templateEditor.style.display = 'none';
+      showPopupMessage('Template deleted successfully', 'success');
+    }
+  });
+  
+  // Initialize
+  loadTemplateDropdown();
+  if (selectedTemplateId) {
+    loadTemplate(selectedTemplateId);
+  }
+}
+
+// Initialize prompt templates when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  initializePromptTemplates();
+  initializeRunAnalysisButton();
+});
+
+// Initialize Run AI Analysis button
+function initializeRunAnalysisButton() {
+  const runAnalysisBtn = document.getElementById('runAnalysisBtn');
+  const transcriptContainer = document.getElementById('transcriptContainer');
+  
+  if (!runAnalysisBtn) return;
+  
+  // Show/hide button based on transcript content
+  function updateAnalysisButtonVisibility() {
+    if (transcriptContainer && transcriptContainer.textContent.trim()) {
+      runAnalysisBtn.style.display = 'inline-block';
+    } else {
+      runAnalysisBtn.style.display = 'none';
+    }
+  }
+  
+  // Update visibility when transcript changes
+  if (transcriptContainer) {
+    const observer = new MutationObserver(updateAnalysisButtonVisibility);
+    observer.observe(transcriptContainer, { childList: true, subtree: true });
+  }
+  
+  // Initial visibility check
+  updateAnalysisButtonVisibility();
+  
+  // Handle button click
+  runAnalysisBtn.addEventListener('click', async function() {
+    try {
+      // Get current transcript content
+      const transcriptChunks = document.querySelectorAll('.transcript-chunk');
+      if (transcriptChunks.length === 0) {
+        showPopupMessage('No transcript available to analyze', 'error');
+        return;
+      }
+      
+      // Collect all transcript text
+      let transcriptContent = '';
+      transcriptChunks.forEach(chunk => {
+        const timeEl = chunk.querySelector('.chunk-time');
+        const textEl = chunk.querySelector('.chunk-text');
+        if (timeEl && textEl) {
+          transcriptContent += `[${timeEl.textContent}] ${textEl.textContent}\n`;
+        }
+      });
+      
+      if (!transcriptContent.trim()) {
+        showPopupMessage('No transcript content found', 'error');
+        return;
+      }
+      
+      // Get selected template from the dropdown
+      const promptTemplateSelect = document.getElementById('promptTemplateSelect');
+      const selectedTemplateId = promptTemplateSelect ? promptTemplateSelect.value : '';
+      const promptTemplates = JSON.parse(localStorage.getItem('prompt_templates') || '{}');
+      let userPromptTemplate = '';
+      
+      if (selectedTemplateId && promptTemplates[selectedTemplateId]) {
+        // Use the currently selected template from dropdown
+        userPromptTemplate = promptTemplates[selectedTemplateId].template;
+        console.log('[Run AI Analysis] Using selected template:', promptTemplates[selectedTemplateId].name);
+      } else {
+        // If no template is selected in dropdown, check if there's at least one template
+        const templateIds = Object.keys(promptTemplates);
+        if (templateIds.length > 0) {
+          // Use the first available template
+          userPromptTemplate = promptTemplates[templateIds[0]].template;
+          console.log('[Run AI Analysis] No template selected, using first available:', promptTemplates[templateIds[0]].name);
+        } else {
+          // No templates exist, use default
+          userPromptTemplate = DEFAULT_USER_PROMPT_TEMPLATE;
+          console.log('[Run AI Analysis] No templates found, using default template');
+        }
+      }
+      
+      if (!userPromptTemplate || !userPromptTemplate.includes('{context}')) {
+        showPopupMessage('Please configure a valid prompt template with {context} placeholder', 'error');
+        return;
+      }
+      
+      // Check API configuration
+      const apiKey = await secureGetItem('openai_api_key');
+      if (!apiKey) {
+        showPopupMessage('Please configure your API key first', 'error');
+        return;
+      }
+      
+      // Show loading state
+      runAnalysisBtn.disabled = true;
+      runAnalysisBtn.textContent = 'Analyzing...';
+      showPopupMessage('Running AI analysis...', 'success');
+      
+      // Process with API
+      const apiService = window.APIService;
+      if (!apiService) {
+        throw new Error('API service not initialized');
+      }
+      
+      const result = await apiService.processWithUserPrompt(userPromptTemplate, transcriptContent);
+      
+      // Open result in new window
+      const resultWindow = window.open('', '_blank', 'width=800,height=600');
+      resultWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>AI Analysis Result</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              line-height: 1.6;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f5f5f5;
+            }
+            .container {
+              background: white;
+              padding: 30px;
+              border-radius: 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h1 {
+              color: #333;
+              border-bottom: 2px solid #007bff;
+              padding-bottom: 10px;
+            }
+            h2 {
+              color: #555;
+              margin-top: 25px;
+            }
+            h3 {
+              color: #666;
+              margin-top: 20px;
+            }
+            pre {
+              background: #f8f9fa;
+              padding: 15px;
+              border-radius: 5px;
+              overflow-x: auto;
+              white-space: pre-wrap;
+            }
+            .timestamp {
+              color: #666;
+              font-size: 0.9em;
+              margin-bottom: 20px;
+            }
+            ul, ol {
+              margin-left: 20px;
+            }
+            li {
+              margin-bottom: 8px;
+            }
+            .copy-btn {
+              background: #007bff;
+              color: white;
+              border: none;
+              padding: 8px 16px;
+              border-radius: 5px;
+              cursor: pointer;
+              margin-top: 20px;
+            }
+            .copy-btn:hover {
+              background: #0056b3;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>AI Analysis Result</h1>
+            <div class="timestamp">Generated at: ${new Date().toLocaleString()}</div>
+            <div id="content">${marked.parse ? marked.parse(result) : result.replace(/\n/g, '<br>')}</div>
+            <button class="copy-btn" onclick="copyToClipboard()">Copy to Clipboard</button>
+          </div>
+          <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+          <script>
+            function copyToClipboard() {
+              const content = document.getElementById('content').innerText;
+              navigator.clipboard.writeText(content).then(() => {
+                alert('Content copied to clipboard!');
+              }).catch(err => {
+                console.error('Failed to copy:', err);
+              });
+            }
+            
+            // Parse markdown if marked is available
+            if (typeof marked !== 'undefined' && !document.getElementById('content').innerHTML.includes('<')) {
+              document.getElementById('content').innerHTML = marked.parse(${JSON.stringify(result)});
+            }
+          </script>
+        </body>
+        </html>
+      `);
+      
+      showPopupMessage('Analysis complete!', 'success');
+    } catch (error) {
+      console.error('AI analysis error:', error);
+      showPopupMessage(`Analysis failed: ${error.message}`, 'error', 5000);
+    } finally {
+      // Reset button state
+      runAnalysisBtn.disabled = false;
+      runAnalysisBtn.textContent = 'Run AI Analysis';
+    }
+  });
 }

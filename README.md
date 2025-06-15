@@ -29,22 +29,35 @@ AI Hackathon Judge is a Chrome extension designed to automatically capture Teams
 
 ## Prerequisites
 
-1. Get an OpenAI API Key:
-   - Visit [OpenAI API page](https://platform.openai.com/api-keys)
-   - Create a new API Key
+1. Get an API Key for Speech-to-Text:
+   - **OpenAI** (Default): Visit [OpenAI API page](https://platform.openai.com/api-keys)
+   - **Groq** (Fast & Cheap): Visit [Groq Console](https://console.groq.com)
+   - **Trend Micro**: Internal users only
    - Enter the API Key in the extension settings
 
 2. Ensure Microsoft Teams desktop app is installed or use Teams web version
+
+## Speech-to-Text Providers
+
+The extension supports multiple STT providers:
+
+- **OpenAI**: Standard Whisper models (whisper-1, gpt-4o-mini-transcribe, gpt-4o-transcribe)
+- **Groq**: Fast transcription with whisper-large-v3-turbo
+- **Trend Micro**: Internal AI endpoint with whisper-1
+- **Custom**: Any OpenAI-compatible endpoint
 
 ## Usage
 
 ### Basic Operations
 1. Click the extension icon in the Chrome toolbar to open the control panel
-2. Enter your OpenAI API Key in the settings panel
-3. Select capture mode (tab capture or desktop capture)
-4. Click "Start Capture" to begin recording the meeting
-5. Click "Stop Capture" to end recording
-6. Click "Open Dashboard" to view analysis results
+2. Configure Speech-to-Text settings:
+   - Select your STT provider (OpenAI, Groq, Trend Micro, or Custom)
+   - Choose a compatible model from the dropdown
+   - Enter the appropriate API Key
+3. Select or create a team for the recording
+4. Click "Start Recording" to begin capturing the meeting
+5. Click "Stop Recording" to end capture
+6. View transcripts in Teams History or export to text
 
 ### Dashboard Features
 - View recordings for all participating teams

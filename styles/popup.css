@@ -24,7 +24,7 @@ body {
 .container {
   width: 700px;
   max-width: 90%;
-  min-height: 450px;
+  min-height: 600px;
   padding: 15px;
   display: flex;
   flex-direction: column;
@@ -424,6 +424,8 @@ h2 {
 .btn-sm {
   padding: 5px 10px;
   font-size: 12px;
+  min-width: auto;
+  width: auto;
 }
 
 .setting-group {
@@ -923,6 +925,17 @@ h2 {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
 }
 
+/* Template management buttons */
+#newTemplateBtn, #deleteTemplateBtn {
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+
 /* Button Layout */
 .save-settings-row {
   display: flex;
@@ -934,4 +947,57 @@ h2 {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* STT Provider Selection Styles */
+#modelDescription {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+#customEndpointGroup,
+#customModelGroup {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+#sttProviderSelect,
+#sttModelSelect {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  transition: border-color 0.2s;
+}
+
+#sttProviderSelect:focus,
+#sttModelSelect:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+#sttProviderSelect option,
+#sttModelSelect option {
+  padding: 5px;
+}
+
+/* Provider-specific styling */
+#sttProviderSelect option[value="groq"] {
+  background-color: #e8f5e9;
+}
+
+#sttProviderSelect option[value="trendmicro"] {
+  background-color: #e3f2fd;
+}
+
+#sttProviderSelect option[value="custom"] {
+  background-color: #fff3e0;
 }

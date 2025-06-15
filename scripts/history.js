@@ -1,3 +1,18 @@
+// Utility function to escape HTML and prevent XSS
+function escapeHtml(str) {
+  if (!str) return '';
+  
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  
+  return str.toString().replace(/[&<>"']/g, m => map[m]);
+}
+
 // 頁面載入後執行的初始化函數
 document.addEventListener('DOMContentLoaded', function() {
   const teamSelect = document.getElementById('teamSelect');
@@ -317,10 +332,12 @@ document.addEventListener('DOMContentLoaded', function() {
       const date = new Date(transcript.date);
       const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
       
+      // Properly escape HTML to prevent XSS
+      const progressiveSpan = transcript.isProgressive ? '<span style="color: #f59e0b; font-size: 0.9em;">(Recording...)</span>' : '';
       recentItem.innerHTML = `
-        <div class="recent-date">${formattedDate}</div>
-        <div class="recent-team">${transcript.teamName}</div>
-        <div class="recent-preview">${truncateText(transcript.text, 120)}</div>
+        <div class="recent-date">${escapeHtml(formattedDate)} ${progressiveSpan}</div>
+        <div class="recent-team">${escapeHtml(transcript.teamName)}</div>
+        <div class="recent-preview">${escapeHtml(truncateText(transcript.text, 120))}</div>
       `;
       
       recentItem.dataset.transcriptId = transcript.id;
@@ -362,7 +379,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const date = new Date(transcript.date);
     const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
     
-    detailTitle.textContent = `${team.name} - ${formattedDate}`;
+    detailTitle.textContent = `${team.name} - ${formattedDate}${transcript.isProgressive ? ' (Progressive Save)' : ''}`;
     detailContent.innerHTML = '';
     
     if (transcript.chunks && transcript.chunks.length > 0) {
@@ -380,16 +397,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (chunk.type === 'screenshot') {
           chunkElement.innerHTML = `
             <div class="chunk-line">
-              <span class="chunk-time">${formattedTime}</span>
+              <span class="chunk-time">${escapeHtml(formattedTime)}</span>
               <span class="chunk-type">📸</span>
-              <span class="chunk-text">${chunk.analysis}</span>
+              <span class="chunk-text">${escapeHtml(chunk.analysis)}</span>
             </div>
           `;
         } else {
           chunkElement.innerHTML = `
             <div class="chunk-line">
-              <span class="chunk-time">${formattedTime}</span>
-              <span class="chunk-text">${chunk.text || chunk.analysis}</span>
+              <span class="chunk-time">${escapeHtml(formattedTime)}</span>
+              <span class="chunk-text">${escapeHtml(chunk.text || chunk.analysis)}</span>
             </div>
           `;
         }
@@ -785,7 +802,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Meeting Notes Processing 功能
   async function processNotesWithUserPrompt(transcript) {
-    const apiKey = localStorage.getItem('openai_api_key');
+    const apiKey = await secureGetItem('openai_api_key');
     const apiEndpoint = localStorage.getItem('openai_api_endpoint') || 'https://api.openai.com/v1';
     
     if (!apiKey) {

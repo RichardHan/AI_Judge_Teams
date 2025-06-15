@@ -12,7 +12,10 @@ let captureState = {
   acceptingTranscriptions: false, // 新增：控制是否接受新的轉錄結果
   saveScheduled: false, // 新增：防止重複保存的標誌
   pendingApiCalls: 0, // Track pending API calls (transcription & screenshots)
-  saveTimeoutId: null // Store timeout ID for early completion
+  saveTimeoutId: null, // Store timeout ID for early completion
+  progressiveSaveInterval: null, // Progressive save interval ID
+  lastProgressiveSaveTime: null, // Last time we saved progressively
+  stopRequestTime: null // Track when stop was requested
 };
 
 // 錄音相關
@@ -150,8 +153,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captureState.downloadFiles = message.options.downloadFiles || false; // 設置是否下載檔案
         captureState.transcriptChunks = []; // 重置轉錄片段
         captureState.pendingApiCalls = 0; // Reset pending API calls counter
+        captureState.lastProgressiveSaveTime = Date.now();
+        captureState.stopRequestTime = null;
         console.log(`[BACKGROUND_SCRIPT] Download files set to: ${captureState.downloadFiles}`);
         console.log('[BACKGROUND_SCRIPT] captureState after updates in startCapture:', JSON.stringify(captureState));
+        
+        // Start progressive save interval (save every 30 seconds)
+        startProgressiveSave();
         
         // Start the first segment capture - this will also set the recordingActiveTab value
         captureNewSegment();
@@ -199,7 +207,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         // Get screenshot interval from storage (default 10 seconds)
         getFromStorage('screenshot_interval').then(interval => {
-          const screenshotIntervalMs = (parseInt(interval) || 10) * 1000;
+          const screenshotIntervalMs = (parseInt(interval) || 20) * 1000;
           console.log(`[BACKGROUND_SCRIPT] Setting screenshot interval to ${screenshotIntervalMs}ms`);
           
           // Set interval to capture screenshots
@@ -481,12 +489,29 @@ function captureNewSegment() {
 
 // 停止所有捕獲
 function stopCapturing() {
-  console.log('[BACKGROUND_SCRIPT] stopCapturing called.');
+  console.log('[BACKGROUND_SCRIPT] ========== STOP RECORDING INITIATED ==========');
+  console.log('[BACKGROUND_SCRIPT] Stop time:', new Date().toISOString());
+  console.log('[BACKGROUND_SCRIPT] Current pending API calls:', captureState.pendingApiCalls);
+  console.log('[BACKGROUND_SCRIPT] Current transcript chunks:', captureState.transcriptChunks.length);
+  
+  // Record stop request time
+  captureState.stopRequestTime = Date.now();
+  captureState.stopTimeline = {
+    startTime: Date.now(),
+    events: []
+  };
   
   // Set state flags first
   captureState.isCapturing = false; 
-  captureState.acceptingTranscriptions = false;
+  // IMPORTANT: Keep accepting transcriptions for a grace period (15 seconds)
+  // We'll stop accepting them after the save is complete or timeout
   captureState.lastScreenshotDataUrl = null; // Reset last screenshot so next capture doesn't skip first shot
+  
+  // Stop progressive save interval
+  if (captureState.progressiveSaveInterval) {
+    clearInterval(captureState.progressiveSaveInterval);
+    captureState.progressiveSaveInterval = null;
+  }
   
   // Message offscreen to stop recording
   chrome.runtime.sendMessage({
@@ -517,12 +542,13 @@ function stopCapturing() {
   }
   
   console.log('[BACKGROUND_SCRIPT] stopCapturing finished. isCapturing:', captureState.isCapturing);
+  console.log('[BACKGROUND_SCRIPT] Still accepting transcriptions for grace period');
   
   // Save transcript to team via popup if we have transcript chunks
   if (captureState.transcriptChunks.length > 0 && !captureState.saveScheduled) {
     captureState.saveScheduled = true;
     console.log('[BACKGROUND_SCRIPT] Scheduling transcript save to popup...');
-    console.log('[BACKGROUND_SCRIPT] Will wait up to 10 seconds or until all API calls complete');
+    console.log('[BACKGROUND_SCRIPT] Will wait up to 15 seconds or until all API calls complete');
     console.log('[BACKGROUND_SCRIPT] Current pending API calls:', captureState.pendingApiCalls);
     
     // Function to save transcript
@@ -538,10 +564,22 @@ function stopCapturing() {
         .map(chunk => chunk.text)
         .join(' ');
       
-      console.log('[BACKGROUND_SCRIPT] Sending saveTranscriptToTeam message to popup');
+      console.log('[BACKGROUND_SCRIPT] 💾 PERFORMING SAVE TO TEAM');
       console.log('[BACKGROUND_SCRIPT] TeamId:', captureState.activeTeamId);
       console.log('[BACKGROUND_SCRIPT] Transcript chunks count:', captureState.transcriptChunks.length);
       console.log('[BACKGROUND_SCRIPT] Full text length:', fullText.length);
+      
+      // Log summary of stop timeline
+      if (captureState.stopTimeline) {
+        const totalElapsed = Date.now() - captureState.stopTimeline.startTime;
+        console.log('[BACKGROUND_SCRIPT] ========== STOP RECORDING SUMMARY ==========');
+        console.log('[BACKGROUND_SCRIPT] Total time from stop to save:', totalElapsed, 'ms');
+        console.log('[BACKGROUND_SCRIPT] Timeline events:');
+        captureState.stopTimeline.events.forEach(event => {
+          console.log(`[BACKGROUND_SCRIPT]   - ${event.event} at ${event.elapsed}ms (pending: ${event.pendingApiCalls})${event.duration ? ` duration: ${event.duration}ms` : ''}`);
+        });
+        console.log('[BACKGROUND_SCRIPT] ==========================================');
+      }
       
       // Send message to popup to save transcript
       chrome.runtime.sendMessage({
@@ -564,16 +602,35 @@ function stopCapturing() {
       });
     };
     
-    // Set a maximum timeout of 10 seconds
+    // Set a maximum timeout of 15 seconds
     captureState.saveTimeoutId = setTimeout(() => {
-      console.log('[BACKGROUND_SCRIPT] Maximum wait time (10s) reached, performing save');
+      const elapsedTime = Date.now() - captureState.stopTimeline.startTime;
+      console.log('[BACKGROUND_SCRIPT] ⏱️ TIMEOUT: Maximum wait time (15s) reached');
+      console.log('[BACKGROUND_SCRIPT] Total elapsed time:', elapsedTime, 'ms');
+      console.log('[BACKGROUND_SCRIPT] Still pending API calls:', captureState.pendingApiCalls);
+      captureState.stopTimeline.events.push({
+        time: Date.now(),
+        event: 'TIMEOUT_REACHED',
+        pendingApiCalls: captureState.pendingApiCalls,
+        elapsed: elapsedTime
+      });
+      captureState.acceptingTranscriptions = false; // Stop accepting new transcriptions
       performSave();
-    }, 10000);
+    }, 15000);
     
     // Check if we can save early (all API calls completed)
     if (captureState.pendingApiCalls === 0) {
-      console.log('[BACKGROUND_SCRIPT] No pending API calls, performing save immediately');
+      const elapsedTime = Date.now() - captureState.stopTimeline.startTime;
+      console.log('[BACKGROUND_SCRIPT] ✅ No pending API calls, performing save immediately');
+      console.log('[BACKGROUND_SCRIPT] Elapsed time:', elapsedTime, 'ms');
+      captureState.stopTimeline.events.push({
+        time: Date.now(),
+        event: 'IMMEDIATE_SAVE',
+        elapsed: elapsedTime
+      });
       performSave();
+    } else {
+      console.log('[BACKGROUND_SCRIPT] ⏳ Waiting for', captureState.pendingApiCalls, 'API calls to complete...');
     }
   }
   
@@ -590,8 +647,13 @@ function stopCapturing() {
 
 // Check if we can perform early save after API call completes
 function checkAndPerformEarlySave() {
-  if (captureState.saveScheduled && captureState.pendingApiCalls === 0 && captureState.saveTimeoutId) {
-    console.log('[BACKGROUND_SCRIPT] All API calls completed, performing early save');
+  // Only perform early save if stop was requested at least 2 seconds ago
+  // This gives a grace period for any in-flight API calls to complete
+  const timeSinceStop = captureState.stopRequestTime ? Date.now() - captureState.stopRequestTime : 0;
+  
+  if (captureState.saveScheduled && captureState.pendingApiCalls === 0 && captureState.saveTimeoutId && timeSinceStop > 2000) {
+    console.log('[BACKGROUND_SCRIPT] All API calls completed and grace period passed, performing early save');
+    captureState.acceptingTranscriptions = false; // Stop accepting new transcriptions
     // Clear the timeout and perform save
     clearTimeout(captureState.saveTimeoutId);
     captureState.saveTimeoutId = null;
@@ -602,10 +664,22 @@ function checkAndPerformEarlySave() {
       .map(chunk => chunk.text)
       .join(' ');
     
-    console.log('[BACKGROUND_SCRIPT] Sending saveTranscriptToTeam message to popup (early completion)');
+    console.log('[BACKGROUND_SCRIPT] 💾 PERFORMING EARLY SAVE TO TEAM (All API calls completed)');
     console.log('[BACKGROUND_SCRIPT] TeamId:', captureState.activeTeamId);
     console.log('[BACKGROUND_SCRIPT] Transcript chunks count:', captureState.transcriptChunks.length);
     console.log('[BACKGROUND_SCRIPT] Full text length:', fullText.length);
+    
+    // Log summary of stop timeline
+    if (captureState.stopTimeline) {
+      const totalElapsed = Date.now() - captureState.stopTimeline.startTime;
+      console.log('[BACKGROUND_SCRIPT] ========== STOP RECORDING SUMMARY ==========');
+      console.log('[BACKGROUND_SCRIPT] Total time from stop to save:', totalElapsed, 'ms');
+      console.log('[BACKGROUND_SCRIPT] Timeline events:');
+      captureState.stopTimeline.events.forEach(event => {
+        console.log(`[BACKGROUND_SCRIPT]   - ${event.event} at ${event.elapsed}ms (pending: ${event.pendingApiCalls})${event.duration ? ` duration: ${event.duration}ms` : ''}`);
+      });
+      console.log('[BACKGROUND_SCRIPT] ==========================================');
+    }
     
     // Send message to popup to save transcript
     chrome.runtime.sendMessage({
@@ -865,7 +939,10 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
     
     // Increment pending API calls
     captureState.pendingApiCalls++;
-    console.log('[BACKGROUND_SCRIPT] Incremented pending API calls to:', captureState.pendingApiCalls, '(screenshot)');
+    console.log('[BACKGROUND_SCRIPT] 📈 API CALL STARTED (Screenshot Analysis)');
+    console.log('[BACKGROUND_SCRIPT] Pending API calls increased to:', captureState.pendingApiCalls);
+    console.log('[BACKGROUND_SCRIPT] Detail level:', detailLevel);
+    const screenshotApiStartTime = Date.now();
     
     // 根據詳細程度和語言設置不同的提示詞
     let prompt;
@@ -937,12 +1014,27 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
         console.log('[BACKGROUND_SCRIPT] Screenshot analysis completed:', analysis);
         
         // 處理分析結果
-        processScreenshotAnalysis(analysis, timestamp);
+        processScreenshotAnalysis(analysis, timestamp, screenshotApiStartTime);
       } else {
         console.error('[BACKGROUND_SCRIPT] Invalid response from OpenAI API:', data);
         // Decrement pending API calls on error
         captureState.pendingApiCalls--;
-        console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot error)');
+        const screenshotDuration = Date.now() - screenshotApiStartTime;
+        console.log('[BACKGROUND_SCRIPT] 📉 API CALL FAILED (Screenshot Analysis - Invalid Response)');
+        console.log('[BACKGROUND_SCRIPT] API call duration:', screenshotDuration, 'ms');
+        console.log('[BACKGROUND_SCRIPT] Pending API calls decreased to:', captureState.pendingApiCalls);
+        
+        if (captureState.stopTimeline) {
+          captureState.stopTimeline.events.push({
+            time: Date.now(),
+            event: 'SCREENSHOT_API_FAILED',
+            duration: screenshotDuration,
+            error: 'Invalid response format',
+            pendingApiCalls: captureState.pendingApiCalls,
+            elapsed: Date.now() - captureState.stopTimeline.startTime
+          });
+        }
+        
         checkAndPerformEarlySave();
       }
     })
@@ -950,7 +1042,23 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
       console.error('[BACKGROUND_SCRIPT] Screenshot analysis failed:', error);
       // Decrement pending API calls on error
       captureState.pendingApiCalls--;
-      console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot error)');
+      const screenshotDuration = Date.now() - screenshotApiStartTime;
+      console.log('[BACKGROUND_SCRIPT] 📉 API CALL FAILED (Screenshot Analysis - Network Error)');
+      console.log('[BACKGROUND_SCRIPT] API call duration:', screenshotDuration, 'ms');
+      console.log('[BACKGROUND_SCRIPT] Error:', error.message);
+      console.log('[BACKGROUND_SCRIPT] Pending API calls decreased to:', captureState.pendingApiCalls);
+      
+      if (captureState.stopTimeline) {
+        captureState.stopTimeline.events.push({
+          time: Date.now(),
+          event: 'SCREENSHOT_API_FAILED',
+          duration: screenshotDuration,
+          error: error.message,
+          pendingApiCalls: captureState.pendingApiCalls,
+          elapsed: Date.now() - captureState.stopTimeline.startTime
+        });
+      }
+      
       checkAndPerformEarlySave();
     });
     
@@ -960,7 +1068,7 @@ function analyzeScreenshotWithLLM(screenshotDataUrl, timestamp, detailLevel = 'm
 }
 
 // 處理截圖分析結果
-function processScreenshotAnalysis(analysis, timestamp) {
+function processScreenshotAnalysis(analysis, timestamp, apiStartTime) {
   console.log('[BACKGROUND_SCRIPT] Processing screenshot analysis result');
   
   // 檢查是否還在接受新的分析結果
@@ -991,7 +1099,20 @@ function processScreenshotAnalysis(analysis, timestamp) {
   
   // Decrement pending API calls after successful processing
   captureState.pendingApiCalls--;
-  console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(screenshot success)');
+  const screenshotDuration = apiStartTime ? Date.now() - apiStartTime : 0;
+  console.log('[BACKGROUND_SCRIPT] 📉 API CALL COMPLETED (Screenshot Analysis)');
+  console.log('[BACKGROUND_SCRIPT] API call duration:', screenshotDuration, 'ms');
+  console.log('[BACKGROUND_SCRIPT] Pending API calls decreased to:', captureState.pendingApiCalls);
+  
+  if (captureState.stopTimeline) {
+    captureState.stopTimeline.events.push({
+      time: Date.now(),
+      event: 'SCREENSHOT_API_COMPLETED',
+      duration: screenshotDuration,
+      pendingApiCalls: captureState.pendingApiCalls,
+      elapsed: Date.now() - captureState.stopTimeline.startTime
+    });
+  }
   
   // Check if we can perform early save
   checkAndPerformEarlySave();
@@ -1042,18 +1163,42 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     
     console.log(`[BACKGROUND_SCRIPT] Transcription settings - Model: ${model}, Endpoint: ${endpoint}${sttApiEndpoint ? ' (STT-specific)' : ''}, API Key: ${sttApiKey ? 'STT-specific' : 'Main'}, Language: ${language || 'auto'}`);
     
+    // Log if using Groq
+    if (endpoint.includes('groq.com')) {
+      console.log('[BACKGROUND_SCRIPT] Detected Groq API endpoint - using Whisper model:', model);
+    }
+    
     // Increment pending API calls
     captureState.pendingApiCalls++;
-    console.log('[BACKGROUND_SCRIPT] Incremented pending API calls to:', captureState.pendingApiCalls);
+    console.log('[BACKGROUND_SCRIPT] 📈 API CALL STARTED (Audio Transcription)');
+    console.log('[BACKGROUND_SCRIPT] Pending API calls increased to:', captureState.pendingApiCalls);
+    console.log('[BACKGROUND_SCRIPT] Audio size:', audioBlob.size, 'bytes');
+    const apiCallStartTime = Date.now();
     
     // 創建FormData進行轉錄
     const formData = new FormData();
-    formData.append('file', audioBlob, 'audio.webm');
+    // Groq may have issues with .webm extension, try .m4a or generic name
+    const filename = endpoint.includes('groq.com') ? 'audio.m4a' : 'audio.webm';
+    formData.append('file', audioBlob, filename);
     formData.append('model', model);
     // 只有在有指定語言時才添加language參數，空字串表示自動檢測
     if (language && language.trim() !== '') {
       formData.append('language', language);
     }
+    // Add response_format for better compatibility with Groq and other providers
+    // Groq supports 'json' and 'verbose_json'
+    formData.append('response_format', 'json');
+    
+    console.log('[BACKGROUND_SCRIPT] Sending audio transcription request:', {
+      endpoint: `${endpoint}/audio/transcriptions`,
+      model: model,
+      audioSize: audioBlob.size,
+      audioType: audioBlob.type,
+      filename: filename,
+      language: language || 'auto-detect',
+      timestamp: new Date().toISOString(),
+      isFinal: isFinal
+    });
     
     // 發送轉錄請求
     const response = await fetch(`${endpoint}/audio/transcriptions`, {
@@ -1065,18 +1210,47 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     });
     
     if (!response.ok) {
-      throw new Error(`Transcription API request failed: ${response.status} ${response.statusText}`);
+      // Try to get error details from response
+      let errorDetails = `${response.status} ${response.statusText}`;
+      try {
+        const errorBody = await response.json();
+        console.error('[BACKGROUND_SCRIPT] API Error Response:', errorBody);
+        if (errorBody.error) {
+          errorDetails = errorBody.error.message || errorBody.error;
+        }
+      } catch (e) {
+        // If we can't parse the error response, use the default
+      }
+      throw new Error(`Transcription API request failed: ${errorDetails}`);
     }
     
     const transcriptionResult = await response.json();
-    console.log('[BACKGROUND_SCRIPT] Transcription completed:', transcriptionResult);
     
-    if (transcriptionResult.text && transcriptionResult.text.trim()) {
+    // Handle both OpenAI and Groq response formats
+    let transcriptionText = '';
+    if (transcriptionResult.text) {
+      transcriptionText = transcriptionResult.text;
+    } else if (transcriptionResult.segments && Array.isArray(transcriptionResult.segments)) {
+      // Groq verbose_json format
+      transcriptionText = transcriptionResult.segments.map(seg => seg.text).join(' ');
+    }
+    
+    console.log('[BACKGROUND_SCRIPT] Audio transcription successful:', {
+      model: model,
+      textLength: transcriptionText.length,
+      textPreview: transcriptionText.substring(0, 100) + '...',
+      hasSegments: !!transcriptionResult.segments,
+      segmentCount: transcriptionResult.segments?.length || 0,
+      timestamp: new Date().toISOString(),
+      isFinal: isFinal
+    });
+    
+    if (transcriptionText && transcriptionText.trim()) {
       // 創建轉錄結果對象
       const transcriptChunk = {
         type: 'transcription',
         timestamp: timestamp,
-        text: transcriptionResult.text.trim(),
+        text: transcriptionText.trim(),
         teamId: captureState.activeTeamId,
         isFinal: isFinal
       };
@@ -1098,7 +1272,20 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     
     // Decrement pending API calls
     captureState.pendingApiCalls--;
-    console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls);
+    const apiCallDuration = Date.now() - apiCallStartTime;
+    console.log('[BACKGROUND_SCRIPT] 📉 API CALL COMPLETED (Audio Transcription)');
+    console.log('[BACKGROUND_SCRIPT] API call duration:', apiCallDuration, 'ms');
+    console.log('[BACKGROUND_SCRIPT] Pending API calls decreased to:', captureState.pendingApiCalls);
+    
+    if (captureState.stopTimeline) {
+      captureState.stopTimeline.events.push({
+        time: Date.now(),
+        event: 'AUDIO_API_COMPLETED',
+        duration: apiCallDuration,
+        pendingApiCalls: captureState.pendingApiCalls,
+        elapsed: Date.now() - captureState.stopTimeline.startTime
+      });
+    }
     
     // Check if we can perform early save
     checkAndPerformEarlySave();
@@ -1108,7 +1295,22 @@ async function processAudioChunkInBackground(audioData, timestamp, isFinal = fal
     
     // Decrement pending API calls even on error
     captureState.pendingApiCalls--;
-    console.log('[BACKGROUND_SCRIPT] Decremented pending API calls to:', captureState.pendingApiCalls, '(after error)');
+    const apiCallDuration = Date.now() - apiCallStartTime;
+    console.log('[BACKGROUND_SCRIPT] 📉 API CALL FAILED (Audio Transcription)');
+    console.log('[BACKGROUND_SCRIPT] API call duration before error:', apiCallDuration, 'ms');
+    console.log('[BACKGROUND_SCRIPT] Error:', error.message);
+    console.log('[BACKGROUND_SCRIPT] Pending API calls decreased to:', captureState.pendingApiCalls);
+    
+    if (captureState.stopTimeline) {
+      captureState.stopTimeline.events.push({
+        time: Date.now(),
+        event: 'AUDIO_API_FAILED',
+        duration: apiCallDuration,
+        error: error.message,
+        pendingApiCalls: captureState.pendingApiCalls,
+        elapsed: Date.now() - captureState.stopTimeline.startTime
+      });
+    }
     
     // Check if we can perform early save
     checkAndPerformEarlySave();
@@ -1128,48 +1330,69 @@ function base64ToBlob(base64Data, mimeType) {
   return new Blob([byteArray], { type: mimeType });
 }
 
-// 保存轉錄結果到團隊數據
+// 保存轉錄結果到團隊數據 (fallback method compatible with popup's localStorage)
 async function saveTranscriptToTeamInBackground() {
-  console.log('[BACKGROUND_SCRIPT] Saving transcript to team in background');
+  console.log('[BACKGROUND_SCRIPT] Saving transcript to team in background (fallback)');
   
   if (!captureState.activeTeamId || captureState.transcriptChunks.length === 0) {
     console.log('[BACKGROUND_SCRIPT] No active team or no transcript chunks to save');
-    return;
+    return false;
   }
   
   try {
-    // 創建完整的轉錄記錄
-    const transcriptRecord = {
-      id: `transcript_${Date.now()}`,
-      teamId: captureState.activeTeamId,
-      timestamp: captureState.startTime || Date.now(),
-      chunks: captureState.transcriptChunks,
-      duration: captureState.startTime ? Date.now() - captureState.startTime : 0,
-      isFinal: true
+    // Generate full text from chunks
+    const fullText = captureState.transcriptChunks
+      .filter(chunk => chunk.type === 'transcription' && chunk.text)
+      .map(chunk => chunk.text)
+      .join(' ');
+    
+    // Create transcript record in the same format as popup
+    const newTranscript = {
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      text: fullText,
+      chunks: JSON.parse(JSON.stringify(captureState.transcriptChunks)) // Deep copy
     };
     
-    // 保存到本地存儲
-    const existingTranscripts = await getFromStorage('team_transcripts') || [];
-    existingTranscripts.push(transcriptRecord);
+    // Save to chrome.storage.sync with special key that popup can check
+    const fallbackData = {
+      teamId: captureState.activeTeamId,
+      transcript: newTranscript,
+      timestamp: Date.now()
+    };
     
-    // 只保留最近的50個轉錄記錄
-    if (existingTranscripts.length > 50) {
-      existingTranscripts.splice(0, existingTranscripts.length - 50);
+    // First, get existing fallback saves
+    const existingFallback = await getFromStorage('pending_transcript_saves') || [];
+    existingFallback.push(fallbackData);
+    
+    // Keep only the last 10 fallback saves
+    if (existingFallback.length > 10) {
+      existingFallback.splice(0, existingFallback.length - 10);
     }
     
-    await setToStorage('team_transcripts', existingTranscripts);
-    console.log('[BACKGROUND_SCRIPT] Transcript saved to storage successfully');
-    
-    // 通知頁面轉錄已保存
-    chrome.runtime.sendMessage({
-      action: 'transcriptSaved',
-      transcript: transcriptRecord
-    }).catch(err => {
-      console.log('[BACKGROUND_SCRIPT] Broadcast message (transcriptSaved) - recipient may not be available:', err.message);
+    await setToStorage('pending_transcript_saves', existingFallback);
+    console.log('[BACKGROUND_SCRIPT] Transcript saved to fallback storage successfully');
+    console.log('[BACKGROUND_SCRIPT] Fallback save details:', {
+      teamId: captureState.activeTeamId,
+      transcriptLength: fullText.length,
+      chunksCount: captureState.transcriptChunks.length
     });
     
+    // Also save a flag to indicate there are pending saves
+    await setToStorage('has_pending_saves', true);
+    
+    // Notify any open popups to check for pending saves
+    chrome.runtime.sendMessage({
+      action: 'checkPendingSaves',
+      message: 'Background saved transcript to fallback storage'
+    }).catch(err => {
+      console.log('[BACKGROUND_SCRIPT] Broadcast message (checkPendingSaves) - recipient may not be available:', err.message);
+    });
+    
+    return true;
   } catch (error) {
-    console.error('[BACKGROUND_SCRIPT] Failed to save transcript:', error);
+    console.error('[BACKGROUND_SCRIPT] Failed to save transcript to fallback:', error);
+    return false;
   }
 }
 
@@ -1220,6 +1443,86 @@ function dataURLToBlob(dataURL) {
       reject(error);
     }
   });
+}
+
+// Start progressive save interval
+function startProgressiveSave() {
+  console.log('[BACKGROUND_SCRIPT] Starting progressive save interval (every 30 seconds)');
+  
+  // Clear any existing interval
+  if (captureState.progressiveSaveInterval) {
+    clearInterval(captureState.progressiveSaveInterval);
+  }
+  
+  // Save every 30 seconds
+  captureState.progressiveSaveInterval = setInterval(() => {
+    if (captureState.isCapturing && captureState.transcriptChunks.length > 0) {
+      console.log('[BACKGROUND_SCRIPT] Progressive save triggered');
+      performProgressiveSave();
+    }
+  }, 30000); // 30 seconds
+}
+
+// Perform progressive save
+function performProgressiveSave() {
+  console.log('[BACKGROUND_SCRIPT] Performing progressive save');
+  console.log('[BACKGROUND_SCRIPT] Current chunks:', captureState.transcriptChunks.length);
+  console.log('[BACKGROUND_SCRIPT] Team ID:', captureState.activeTeamId);
+  
+  if (!captureState.activeTeamId || captureState.transcriptChunks.length === 0) {
+    console.log('[BACKGROUND_SCRIPT] Skipping progressive save - no team or no chunks');
+    return;
+  }
+  
+  // Create full text from transcript chunks
+  const fullText = captureState.transcriptChunks
+    .filter(chunk => chunk.type === 'transcription' && chunk.text)
+    .map(chunk => chunk.text)
+    .join(' ');
+  
+  // Send message to popup to save transcript progressively
+  chrome.runtime.sendMessage({
+    action: 'progressiveSaveTranscript',
+    teamId: captureState.activeTeamId,
+    transcriptChunks: captureState.transcriptChunks,
+    fullText: fullText,
+    isProgressive: true
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn('[BACKGROUND_SCRIPT] Error sending progressiveSaveTranscript message:', chrome.runtime.lastError.message);
+      // Fallback to background save
+      saveProgressiveTranscriptInBackground();
+    } else {
+      console.log('[BACKGROUND_SCRIPT] progressiveSaveTranscript response:', response);
+      if (!response || !response.success) {
+        console.warn('[BACKGROUND_SCRIPT] Popup failed to save progressive transcript, using fallback');
+        saveProgressiveTranscriptInBackground();
+      } else {
+        captureState.lastProgressiveSaveTime = Date.now();
+      }
+    }
+  });
+}
+
+// Save progressive transcript in background
+async function saveProgressiveTranscriptInBackground() {
+  console.log('[BACKGROUND_SCRIPT] Saving progressive transcript in background');
+  
+  try {
+    // Save to a special key for progressive saves
+    const progressiveData = {
+      teamId: captureState.activeTeamId,
+      transcriptChunks: JSON.parse(JSON.stringify(captureState.transcriptChunks)),
+      timestamp: Date.now(),
+      isProgressive: true
+    };
+    
+    await setToStorage('progressive_transcript_save', progressiveData);
+    captureState.lastProgressiveSaveTime = Date.now();
+    console.log('[BACKGROUND_SCRIPT] Progressive transcript saved to storage');
+  } catch (error) {
+    console.error('[BACKGROUND_SCRIPT] Failed to save progressive transcript:', error);
+  }
 }
 
 console.log('[BACKGROUND_SCRIPT] background.js script loaded completely');

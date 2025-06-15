@@ -3,22 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Teams Meeting Assistant</title>
+  <title>Meeting Transcription Assistant</title>
   <link rel="stylesheet" href="styles/popup.css">
 </head>
 <body>
   <div class="container">
     <header class="main-header">
       <div class="header-content">
-        <h1>Teams Meeting Assistant</h1>
+        <h1>Meeting Transcription Assistant</h1>
         <div class="status-bar">
           <span>Status: </span>
           <span id="status" class="status-text">Ready</span>
         </div>
       </div>
       <div class="header-actions">
-        <button id="settingsBtn" class="btn btn-icon">⚙️</button>
-        <button id="showHistoryBtn" class="btn btn-icon">📋</button>
+        <button id="endpointSettingsBtn" class="btn btn-icon" title="API Configuration">🔗</button>
+        <button id="settingsBtn" class="btn btn-icon" title="Model & Feature Settings">⚙️</button>
+        <button id="showHistoryBtn" class="btn btn-icon" title="History">📋</button>
       </div>
     </header>
     
@@ -26,11 +27,11 @@
       <div class="control-row">
         <div class="team-section">
           <select id="teamSelect" class="select-field-compact">
-            <option value="" disabled selected>Select Team</option>
+            <option value="" disabled selected>Select Session</option>
           </select>
-          <button id="addTeamBtn" class="btn btn-icon-small" title="Add Team">+</button>
-          <button id="deleteTeamBtn" class="btn btn-icon-small btn-danger" title="Delete Team" disabled>🗑️</button>
-          <button id="bulkDeleteBtn" class="btn btn-icon-small btn-danger" title="Bulk Delete Teams" disabled>📋</button>
+          <button id="addTeamBtn" class="btn btn-icon-small" title="New Session">+</button>
+          <button id="deleteTeamBtn" class="btn btn-icon-small btn-danger" title="Delete Session" disabled>🗑️</button>
+          <button id="bulkDeleteBtn" class="btn btn-icon-small btn-danger" title="Bulk Delete Sessions" disabled>📋</button>
         </div>
         
         <div class="recording-section">
@@ -43,48 +44,70 @@
           <select id="languageSelect" class="select-field-compact">
             <option value="">Auto</option>
             <option value="en">English</option>
-            <option value="zh">中文</option>
-            <option value="ja">日本語</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
           </select>
         </div>
       </div>
     </div>
     
-    <div id="settingsPanel" class="settings-panel hidden">
+    <!-- Endpoint Settings Panel -->
+    <div id="endpointSettingsPanel" class="settings-panel hidden">
+      <h2>API Configuration</h2>
       <div class="setting-group">
-        <label for="apiEndpointInput">API Endpoint:</label>
+        <label for="apiEndpointInput">Base API URL:</label>
         <input type="text" id="apiEndpointInput" class="input-field" 
                placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+        <div class="setting-description">OpenAI-compatible API endpoint (e.g., https://api.openai.com/v1)</div>
       </div>
       <div class="setting-group">
-        <label for="apiKeyInput">OpenAI API Key:</label>
+        <label for="apiKeyInput">Primary API Key:</label>
         <input type="password" id="apiKeyInput" class="input-field" 
                placeholder="sk-..." autocomplete="off">
+        <div class="setting-description">API key for chat completions and image analysis</div>
       </div>
       <div class="setting-group">
-        <label for="sttApiEndpointInput">API Endpoint (For Speech to Text):</label>
+        <label for="sttProviderSelect">STT Provider:</label>
+        <select id="sttProviderSelect" class="input-field">
+          <option value="openai">OpenAI (Default)</option>
+          <option value="trendmicro">Trend Micro AI Endpoint</option>
+          <option value="groq">Groq (Fast & Cheap)</option>
+          <option value="custom">Custom Endpoint</option>
+        </select>
+        <div class="setting-description">Speech-to-Text service provider</div>
+      </div>
+      <div class="setting-group" id="customEndpointGroup" style="display: none;">
+        <label for="sttApiEndpointInput">STT Endpoint URL:</label>
         <input type="text" id="sttApiEndpointInput" class="input-field" 
-               placeholder="https://api.openai.com/v1 (Default: OpenAI)" value="">
-        <div class="setting-description">Leave empty to use default OpenAI endpoint for speech-to-text transcription</div>
+               placeholder="https://your-api.com/v1" value="">
+        <div class="setting-description">Custom endpoint for speech-to-text API</div>
       </div>
       <div class="setting-group">
-        <label for="sttApiKeyInput">API Key (For Speech to Text):</label>
+        <label for="sttApiKeyInput">STT API Key:</label>
         <input type="password" id="sttApiKeyInput" class="input-field" 
-               placeholder="Leave empty to use main API key" autocomplete="off">
-        <div class="setting-description">Optional: Separate API key for speech-to-text. If empty, will use the main API key above</div>
+               placeholder="Leave empty to use primary API key" autocomplete="off">
+        <div class="setting-description">Optional: Dedicated API key for transcription. If empty, uses the primary API key</div>
       </div>
       <div class="setting-group">
-        <label for="sttModelInput">Speech-to-Text Model:</label>
-        <input type="text" id="sttModelInput" class="input-field" 
-               placeholder="whisper-1 (Default)" value="">
-        <div class="setting-description">
-          <strong>OpenAI Models:</strong><br>
-          • whisper-1 (Default, stable)<br>
-          • gpt-4o-mini-transcribe (Faster, cheaper)<br>
-          • gpt-4o-transcribe (Most accurate)<br>
-          <strong>Self-hosted:</strong> whisper-tiny, whisper-base, whisper-small, whisper-medium, whisper-large, whisper-large-v2, whisper-large-v3
-        </div>
+        <label for="sttModelSelect">Transcription Model:</label>
+        <select id="sttModelSelect" class="input-field">
+          <option value="">Select a model...</option>
+        </select>
+        <div id="modelDescription" class="setting-description" style="margin-top: 5px;"></div>
       </div>
+      <div class="setting-group" id="customModelGroup" style="display: none;">
+        <label for="sttModelInput">Model ID:</label>
+        <input type="text" id="sttModelInput" class="input-field" 
+               placeholder="Enter model identifier" value="">
+        <div class="setting-description">Custom model name/ID for transcription</div>
+      </div>
+      <div class="setting-group">
+        <button id="saveEndpointSettingsBtn" class="btn btn-primary">Save API Configuration</button>
+      </div>
+    </div>
+    
+    <div id="settingsPanel" class="settings-panel hidden">
+      <h2>Model & Feature Settings</h2>
       <div class="setting-group">
         <h3>Meeting Note Helper Models</h3>
         <div class="model-configurations">
@@ -149,7 +172,7 @@
       <div class="setting-group">
         <label for="screenshotIntervalInput">Screenshot Capture Interval (seconds):</label>
         <input type="number" id="screenshotIntervalInput" class="input-field" 
-               min="5" max="300" value="10" step="5">
+               min="5" max="300" value="20" step="5">
         <div class="setting-description">How often to capture and analyze screenshots (5-300 seconds)</div>
       </div>
       <div class="setting-group">
@@ -166,22 +189,45 @@
       </div>
       <div class="setting-group">
         <label class="checkbox-label">
-          <input type="checkbox" id="downloadFilesCheckbox"> 下載音訊檔案 (audio_capture資料夾)
+          <input type="checkbox" id="downloadFilesCheckbox"> Download Audio Files
         </label>
-        <div class="setting-description">若啟用，每10秒的錄音將保存到Downloads/audio_capture資料夾</div>
+        <div class="setting-description">When enabled, 10-second audio segments will be saved to Downloads/audio_capture folder</div>
       </div>
       
       <div class="setting-group">
-        <h3>Meeting Note Helper Settings</h3>
+        <h3>Meeting Note Helper - Prompt Templates</h3>
         <div class="prompt-settings">
-          <label for="userPromptTemplate">User Prompt Template:</label>
-          <div class="setting-description">
-            Use <code>{context}</code> as a placeholder for meeting transcripts and screenshot analysis
+          <div class="template-selector">
+            <label for="promptTemplateSelect">Select Template:</label>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+              <select id="promptTemplateSelect" class="input-field" style="flex: 1;">
+                <option value="">-- Select a template --</option>
+              </select>
+              <button id="newTemplateBtn" class="btn btn-sm btn-secondary" title="New Template">+</button>
+              <button id="deleteTemplateBtn" class="btn btn-sm btn-danger" title="Delete Template" disabled>🗑️</button>
+            </div>
           </div>
-          <textarea id="userPromptTemplate" class="user-prompt-template" 
-                    placeholder="Enter your custom prompt template here. Use {context} where you want the meeting content to be inserted.">
-          </textarea>
-          <div class="prompt-examples">
+          
+          <div class="template-editor" id="templateEditor" style="display: none;">
+            <label for="templateName">Template Name:</label>
+            <input type="text" id="templateName" class="input-field" placeholder="Enter template name" style="margin-bottom: 10px;">
+            
+            <label for="userPromptTemplate">Prompt Template:</label>
+            <div class="setting-description">
+              Use <code>{context}</code> as a placeholder for meeting transcripts and screenshot analysis
+            </div>
+            <textarea id="userPromptTemplate" class="user-prompt-template" 
+                      placeholder="Enter your custom prompt template here. Use {context} where you want the meeting content to be inserted."
+                      style="min-height: 150px;">
+            </textarea>
+            
+            <div style="margin-top: 10px;">
+              <button id="saveTemplateBtn" class="btn btn-sm btn-primary">Save Template</button>
+              <button id="cancelTemplateBtn" class="btn btn-sm btn-secondary">Cancel</button>
+            </div>
+          </div>
+          
+          <div class="prompt-examples" style="margin-top: 15px;">
             <small>
               <strong>Example templates:</strong><br>
               • Meeting Summary: "Please summarize the key points and action items from: {context}"<br>
@@ -206,13 +252,13 @@
     
     <!-- Bulk Delete Panel -->
     <div id="bulkDeletePanel" class="bulk-delete-panel hidden">
-      <h3>Select Teams to Delete</h3>
+      <h3>Select Sessions to Delete</h3>
       <div class="bulk-actions">
         <button id="selectAllBtn" class="btn btn-sm">Select All</button>
         <button id="deselectAllBtn" class="btn btn-sm">Deselect All</button>
       </div>
       <div id="teamListForDelete" class="team-list-delete">
-        <!-- Team checkboxes will be dynamically filled here -->
+        <!-- Session checkboxes will be dynamically filled here -->
       </div>
       <div class="bulk-actions-bottom">
         <button id="cancelBulkDeleteBtn" class="btn btn-secondary">Cancel</button>
@@ -222,10 +268,10 @@
     
     <!-- Meeting History Panel -->
     <div id="historyPanel" class="history-panel hidden">
-      <h2>Meeting History</h2>
+      <h2>Recording History</h2>
       <div class="history-controls">
         <select id="historyTeamSelect" class="select-field">
-          <option value="">All Teams</option>
+          <option value="">All Sessions</option>
         </select>
         <button id="refreshHistoryBtn" class="btn btn-secondary btn-sm">Refresh</button>
       </div>
@@ -235,11 +281,15 @@
     </div>
     
     <div class="transcript-panel">
-      <h2>Live Transcription</h2>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h2>Live Transcription</h2>
+        <button id="runAnalysisBtn" class="btn btn-secondary btn-sm" style="display: none;">Run AI Analysis</button>
+      </div>
       <div id="transcriptContainer" class="transcript-container"></div>
     </div>
   </div>
   
+  <script src="scripts/securityUtils.js"></script>
   <script src="scripts/apiService.js"></script>
   <script src="scripts/popup.js"></script>
 </body>

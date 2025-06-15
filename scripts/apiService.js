@@ -143,23 +143,35 @@ class APIService {
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
       try {
+        const requestBody = {
+          model: this.settings.model || 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'user',
+              content: finalPrompt
+            }
+          ],
+          max_tokens: 2000,
+          temperature: 0.7
+        };
+        
+        console.log('[APIService] Sending chat completion request:', {
+          endpoint: `${endpoint}/chat/completions`,
+          model: requestBody.model,
+          promptLength: finalPrompt.length,
+          promptPreview: finalPrompt.substring(0, 200) + '...',
+          maxTokens: requestBody.max_tokens,
+          temperature: requestBody.temperature,
+          timestamp: new Date().toISOString()
+        });
+        
         const response = await fetch(`${endpoint}/chat/completions`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${this.settings.apiKey}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            model: this.settings.model || 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'user',
-                content: finalPrompt
-              }
-            ],
-            max_tokens: 2000,
-            temperature: 0.7
-          }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal
         });
         
@@ -173,10 +185,21 @@ class APIService {
         const data = await response.json();
         
         if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+          console.error('[APIService] Invalid response format:', data);
           throw new Error('Invalid response format from API');
         }
         
-        return data.choices[0].message.content;
+        const result = data.choices[0].message.content;
+        
+        console.log('[APIService] Chat completion successful:', {
+          model: data.model || requestBody.model,
+          usage: data.usage,
+          responseLength: result.length,
+          responsePreview: result.substring(0, 200) + '...',
+          timestamp: new Date().toISOString()
+        });
+        
+        return result;
       } catch (error) {
         if (error.name === 'AbortError') {
           throw new Error('Request timeout after 60 seconds');
@@ -282,14 +305,7 @@ class APIService {
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
       try {
-        const response = await fetch(`${endpoint}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.settings.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
+        const requestBody = {
           model: visionModel,
           messages: [
             {
@@ -310,7 +326,25 @@ class APIService {
           ],
           max_tokens: detailLevel === 'high' ? 500 : (detailLevel === 'low' ? 100 : 300),
           temperature: 0.7
-          })
+        };
+        
+        console.log('[APIService] Sending image analysis request:', {
+          endpoint: `${endpoint}/chat/completions`,
+          model: requestBody.model,
+          detailLevel: detailLevel,
+          maxTokens: requestBody.max_tokens,
+          imageSize: imageBlob.size,
+          timestamp: new Date().toISOString()
+        });
+        
+        const response = await fetch(`${endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.settings.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal,
+          body: JSON.stringify(requestBody)
         });
         
         clearTimeout(timeoutId);
@@ -323,10 +357,21 @@ class APIService {
         const data = await response.json();
         
         if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+          console.error('[APIService] Invalid image analysis response format:', data);
           throw new Error('Invalid response format from image analysis API');
         }
         
-        return data.choices[0].message.content;
+        const result = data.choices[0].message.content;
+        
+        console.log('[APIService] Image analysis successful:', {
+          model: data.model || requestBody.model,
+          usage: data.usage,
+          responseLength: result.length,
+          responsePreview: result.substring(0, 200) + '...',
+          timestamp: new Date().toISOString()
+        });
+        
+        return result;
       } catch (error) {
         if (error.name === 'AbortError') {
           throw new Error('Image analysis timeout after 45 seconds');
